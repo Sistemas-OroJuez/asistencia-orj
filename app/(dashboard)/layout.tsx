@@ -7,9 +7,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
 
   const handleLogout = async () => {
+    // 1. Cerramos sesión en el servidor de Supabase
     await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
+    
+    // 2. Limpiamos el almacenamiento local por seguridad extra
+    if (typeof window !== 'undefined') {
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // 3. Forzamos redirección total. Esto "rompe" la sesión en el navegador
+      // y hace que el Middleware te pida login obligatoriamente.
+      window.location.href = '/login';
+    }
   };
 
   return (
@@ -34,7 +43,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <button 
             onClick={handleLogout}
-            className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 hover:text-red-600 transition-all"
+            className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 hover:text-red-600 transition-all active:scale-95"
           >
             CERRAR SESIÓN
           </button>
