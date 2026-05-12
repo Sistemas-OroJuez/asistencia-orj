@@ -7,6 +7,13 @@ export default function DashboardPrincipal() {
 
   const modulos = [
     { 
+      nombre: 'Monitor Realtime', 
+      icono: '📡', 
+      color: 'bg-blue-600', 
+      link: '/asistencia', 
+      desc: 'Ver timbradas en vivo' 
+    },
+    { 
       nombre: 'Control de Jornadas', 
       icono: '⏱️', 
       color: 'bg-indigo-600', 
@@ -28,18 +35,18 @@ export default function DashboardPrincipal() {
       desc: 'Empresas, Sitios y Áreas' 
     },
     { 
-      nombre: 'Dispositivos', 
-      icono: '📟', 
-      color: 'bg-blue-700', 
-      link: '/dispositivos', 
-      desc: 'Relojes ZKTeco' 
-    },
-    { 
       nombre: 'Enrolamiento Personal', 
       icono: '👤', 
       color: 'bg-emerald-600', 
       link: '/empleados', 
       desc: 'Vincular ID de Reloj' 
+    },
+    { 
+      nombre: 'Dispositivos', 
+      icono: '📟', 
+      color: 'bg-blue-700', 
+      link: '/dispositivos', 
+      desc: 'Relojes ZKTeco' 
     },
     { 
       nombre: 'Aprobación Horas', 
