@@ -11,15 +11,12 @@ export default function RegistroEmpleados() {
   const [formData, setFormData] = useState({
     nombre: '',
     cedula: '',
-    codigo_reloj: '',
+    user_id_reloj: '', // Coincide con tu Schema
     empresa_id: '',
-    sitio_id: '',
     area_id: ''
   });
 
-  useEffect(() => {
-    fetchInitialData();
-  }, []);
+  useEffect(() => { fetchInitialData(); }, []);
 
   const fetchInitialData = async () => {
     const { data } = await supabase.from('empresas').select('*');
@@ -27,46 +24,52 @@ export default function RegistroEmpleados() {
   };
 
   const handleEmpresaChange = async (id: string) => {
-    setFormData({...formData, empresa_id: id, sitio_id: '', area_id: ''});
+    setFormData({...formData, empresa_id: id, area_id: ''});
+    // Buscamos sitios para que el usuario elija, aunque no se guarden en la tabla empleados directamente
     const { data } = await supabase.from('sitios').select('*').eq('empresa_id', id);
     setSitios(data || []);
   };
 
   const handleSitioChange = async (id: string) => {
-    setFormData({...formData, sitio_id: id, area_id: ''});
     const { data } = await supabase.from('areas').select('*').eq('sitio_id', id);
     setAreas(data || []);
   };
 
   const guardarEmpleado = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Solo enviamos los campos que existen en tu tabla
     const { error } = await supabase.from('empleados').insert([
-      { ...formData, codigo_reloj: parseInt(formData.codigo_reloj) }
+      { 
+        nombre: formData.nombre,
+        cedula: formData.cedula,
+        user_id_reloj: formData.user_id_reloj,
+        empresa_id: formData.empresa_id,
+        area_id: formData.area_id,
+        activo: true
+      }
     ]);
-    if (error) alert("Error: " + error.message);
-    else {
-      alert("Empleado enrolado con éxito");
-      setFormData({ nombre: '', cedula: '', codigo_reloj: '', empresa_id: '', sitio_id: '', area_id: '' });
+
+    if (error) {
+      alert("Error: " + error.message);
+    } else {
+      alert("Empleado vinculado exitosamente");
+      setFormData({ nombre: '', cedula: '', user_id_reloj: '', empresa_id: '', area_id: '' });
     }
   };
 
   return (
     <div className="p-4 md:p-8 max-w-2xl mx-auto">
       <div className="bg-white p-6 rounded-2xl shadow-xl border border-slate-200">
-        <h1 className="text-xl font-black mb-6 flex items-center gap-2">
-          👤 ENROLAMIENTO DE EMPLEADO
-        </h1>
+        <h1 className="text-xl font-black mb-6">👤 ENROLAMIENTO</h1>
         
         <form onSubmit={guardarEmpleado} className="space-y-4">
-          <div>
-            <label className="text-xs font-bold text-slate-500 uppercase">ID Asignado en Reloj</label>
-            <input 
-              type="number" required placeholder="Ej: 105"
-              className="w-full p-3 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-              value={formData.codigo_reloj}
-              onChange={e => setFormData({...formData, codigo_reloj: e.target.value})}
-            />
-          </div>
+          <input 
+            type="text" placeholder="ID en el Reloj (User ID)" required
+            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-xl outline-none focus:border-indigo-500"
+            value={formData.user_id_reloj}
+            onChange={e => setFormData({...formData, user_id_reloj: e.target.value})}
+          />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input 
@@ -76,7 +79,7 @@ export default function RegistroEmpleados() {
               onChange={e => setFormData({...formData, nombre: e.target.value})}
             />
             <input 
-              type="text" placeholder="Cédula" required
+              type="text" placeholder="Número de Cédula" required
               className="p-3 border rounded-xl"
               value={formData.cedula}
               onChange={e => setFormData({...formData, cedula: e.target.value})}
@@ -84,8 +87,9 @@ export default function RegistroEmpleados() {
           </div>
 
           <div className="space-y-3 pt-4 border-t">
+            <label className="text-[10px] font-bold text-slate-400 uppercase">Ubicación Laboral</label>
             <select 
-              className="w-full p-3 border rounded-xl" required
+              className="w-full p-3 border rounded-xl bg-white" required
               onChange={e => handleEmpresaChange(e.target.value)}
               value={formData.empresa_id}
             >
@@ -94,28 +98,27 @@ export default function RegistroEmpleados() {
             </select>
 
             <select 
-              className="w-full p-3 border rounded-xl" required
-              disabled={!formData.empresa_id}
+              className="w-full p-3 border rounded-xl bg-white" 
               onChange={e => handleSitioChange(e.target.value)}
-              value={formData.sitio_id}
+              disabled={!formData.empresa_id}
             >
-              <option value="">Seleccionar Sitio/Planta...</option>
+              <option value="">Seleccionar Sitio/Planta (Filtro)...</option>
               {sitios.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
             </select>
 
             <select 
-              className="w-full p-3 border rounded-xl" required
-              disabled={!formData.sitio_id}
+              className="w-full p-3 border rounded-xl bg-white" required
+              disabled={areas.length === 0}
               value={formData.area_id}
               onChange={e => setFormData({...formData, area_id: e.target.value})}
             >
-              <option value="">Seleccionar Área...</option>
+              <option value="">Seleccionar Área Final...</option>
               {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
           </div>
 
-          <button type="submit" className="w-full bg-slate-900 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-all">
-            VINCULAR EMPLEADO AL SISTEMA
+          <button type="submit" className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-all">
+            GUARDAR EMPLEADO
           </button>
         </form>
       </div>
