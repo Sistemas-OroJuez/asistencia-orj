@@ -29,31 +29,37 @@ export default function JornadasPage() {
 
   const fetchJornadas = async () => {
     setLoading(true);
-    // Ajustamos la consulta para que coincida con la estructura real de tus tablas
-    const { data, error } = await supabase
-      .from('jornadas_procesadas')
-      .select(`
-        *,
-        empleados (
-          nombre,
-          areas (
-            nombre
-          ),
-          sitios (
-            nombre
+    try {
+      // Consulta optimizada: Separamos áreas y sitios para evitar que el JOIN falle
+      const { data, error } = await supabase
+        .from('jornadas_procesadas')
+        .select(`
+          *,
+          empleados (
+            id,
+            nombre,
+            areas (
+              nombre
+            ),
+            sitios (
+              nombre
+            )
           )
-        )
-      `)
-      .order('entrada', { ascending: false })
-      .limit(50);
+        `)
+        .order('entrada', { ascending: false })
+        .limit(50);
 
-    if (error) {
-      console.error("Error cargando jornadas:", error);
-    } else {
-      console.log("Jornadas detectadas:", data);
-      setJornadas(data || []);
+      if (error) {
+        console.error("Error cargando jornadas:", error);
+      } else {
+        console.log("Jornadas detectadas:", data);
+        setJornadas(data || []);
+      }
+    } catch (err) {
+      console.error("Error inesperado:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -80,13 +86,12 @@ export default function JornadasPage() {
                 {/* Información del Empleado */}
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`w-3 h-3 rounded-full ${j.estado === 'abierta' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
+                    <span className={`w-3 h-3 rounded-full ${j.estado === 'abierta' || !j.salida ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
                     <h3 className="font-bold text-slate-800 text-lg uppercase">
                       {j.empleados?.nombre || 'Empleado no vinculado'}
                     </h3>
                   </div>
                   <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">
-                    {/* Acceso directo a sitios desde empleados según tu esquema */}
                     {j.empleados?.sitios?.nombre || 'Sin Sitio'} • {j.empleados?.areas?.nombre || 'Sin Área'}
                   </p>
                 </div>
@@ -98,10 +103,9 @@ export default function JornadasPage() {
                     <p className="text-sm font-bold text-slate-700">
                       {j.entrada ? format(new Date(j.entrada), "iii d MMM, HH:mm", { locale: es }) : '---'}
                     </p>
-                    {/* Indicador de Atraso si existe el dato */}
                     {j.minutos_atraso > 0 && (
-                      <span className="text-[9px] font-bold text-red-500">
-                        {j.minutos_atraso} min atraso
+                      <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">
+                        +{Math.round(j.minutos_atraso)} min atraso
                       </span>
                     )}
                   </div>
@@ -112,7 +116,7 @@ export default function JornadasPage() {
                         {format(new Date(j.salida), "iii d MMM, HH:mm", { locale: es })}
                       </p>
                     ) : (
-                      <span className="text-[10px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded border border-emerald-100 uppercase">En Turno</span>
+                      <span className="text-[10px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded border border-emerald-100 uppercase tracking-tighter">En Turno</span>
                     )}
                   </div>
                 </div>
@@ -139,7 +143,7 @@ export default function JornadasPage() {
                 No hay jornadas registradas
               </p>
               <p className="text-slate-400 text-xs mt-2">
-                Verifica que los empleados tengan área, sitio y turno asignados.
+                Verifica que el ID del reloj coincida con el del empleado.
               </p>
             </div>
           )}
