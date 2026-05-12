@@ -1,14 +1,6 @@
-'use client';
-import { useState, useEffect } from 'react';
-// Cambiamos el import anterior por este:
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@supabase/supabase-js'
 
-export default function EmpresasFullConfig() {
-  const [empresas, setEmpresas] = useState<any[]>([]);
-  // ... resto de tus estados ...
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-  // Inicializamos el cliente dentro del componente
-  const supabase = createClientComponentClient(); 
-
-  // ... el resto de tus funciones fetchEmpresas, crearEmpresa, etc., 
-  // ahora usarán este 'supabase' que SÍ envía el token de usuario.
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
