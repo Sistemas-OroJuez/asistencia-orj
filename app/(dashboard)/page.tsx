@@ -10,7 +10,7 @@ export default function DashboardPrincipal() {
       nombre: 'Control de Jornadas', 
       icono: '⏱️', 
       color: 'bg-indigo-600', 
-      link: '/jornadas', // <-- Cambiado de /asistencia a /jornadas
+      link: '/jornadas', // Apunta a la nueva lógica inteligente
       desc: 'Entradas, salidas y horas' 
     },
     { 
@@ -62,7 +62,9 @@ export default function DashboardPrincipal() {
         {/* Header Superior */}
         <header className="flex justify-between items-center mb-10 bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
           <div>
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">ORO JUEZ <span className="text-indigo-600">SISTEMAS</span></h1>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight text-center md:text-left">
+              ORO JUEZ <span className="text-indigo-600">SISTEMAS</span>
+            </h1>
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">Gestión de Asistencia v2.0</p>
           </div>
           <button 
