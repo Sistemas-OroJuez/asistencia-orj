@@ -2,108 +2,105 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
-export default function EmpresasPage() {
+export default function EmpresasConfigPage() {
   const [empresas, setEmpresas] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  
-  // Estados para el formulario
-  const [nombre, setNombre] = useState('');
-  const [ruc, setRuc] = useState('');
-  const [direccion, setDireccion] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [contacto, setContacto] = useState('');
+  const [selectedEmpresa, setSelectedEmpresa] = useState<any>(null);
+  const [sitios, setSitios] = useState<any[]>([]);
+  const [newSitio, setNewSitio] = useState('');
+  const [newArea, setNewArea] = useState('');
+  const [selectedSitio, setSelectedSitio] = useState<any>(null);
+  const [areas, setAreas] = useState<any[]>([]);
 
-  // Cargar empresas al iniciar
-  useEffect(() => {
-    fetchEmpresas();
-  }, []);
+  useEffect(() => { fetchEmpresas(); }, []);
 
   const fetchEmpresas = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('empresas')
-      .select('*')
-      .order('nombre', { ascending: true });
-    
-    if (error) console.error('Error:', error);
-    else setEmpresas(data || []);
-    setLoading(false);
+    const { data } = await supabase.from('empresas').select('*');
+    setEmpresas(data || []);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const { error } = await supabase.from('empresas').insert([
-      { nombre, ruc, direccion, telefono, contacto }
-    ]);
+  const fetchSitios = async (empresaId: string) => {
+    const { data } = await supabase.from('sitios').select('*').eq('empresa_id', empresaId);
+    setSitios(data || []);
+    setAreas([]);
+  };
 
-    if (error) {
-      alert("Error al crear empresa: " + error.message);
-    } else {
-      alert("Empresa creada con éxito");
-      // Limpiar formulario y recargar lista
-      setNombre(''); setRuc(''); setDireccion(''); setTelefono(''); setContacto('');
-      fetchEmpresas();
-    }
+  const fetchAreas = async (sitioId: string) => {
+    const { data } = await supabase.from('areas').select('*').eq('sitio_id', sitioId);
+    setAreas(data || []);
+  };
+
+  const agregarSitio = async () => {
+    await supabase.from('sitios').insert([{ nombre: newSitio, empresa_id: selectedEmpresa.id }]);
+    setNewSitio('');
+    fetchSitios(selectedEmpresa.id);
+  };
+
+  const agregarArea = async () => {
+    await supabase.from('areas').insert([{ nombre: newArea, sitio_id: selectedSitio.id }]);
+    setNewArea('');
+    fetchAreas(selectedSitio.id);
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold text-slate-800 mb-8">Gestión de Empresas</h1>
-
-      {/* Formulario de Registro */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-10">
-        <h2 className="text-lg font-semibold mb-4 text-slate-700">Registrar Nueva Empresa</h2>
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input 
-            type="text" placeholder="Nombre de la Empresa" required
-            className="p-2 border rounded-lg" value={nombre} onChange={(e) => setNombre(e.target.value)}
-          />
-          <input 
-            type="text" placeholder="RUC" required
-            className="p-2 border rounded-lg" value={ruc} onChange={(e) => setRuc(e.target.value)}
-          />
-          <input 
-            type="text" placeholder="Dirección"
-            className="p-2 border rounded-lg md:col-span-2" value={direccion} onChange={(e) => setDireccion(e.target.value)}
-          />
-          <input 
-            type="text" placeholder="Teléfono"
-            className="p-2 border rounded-lg" value={telefono} onChange={(e) => setTelefono(e.target.value)}
-          />
-          <input 
-            type="text" placeholder="Persona de Contacto"
-            className="p-2 border rounded-lg" value={contacto} onChange={(e) => setContacto(e.target.value)}
-          />
-          <button type="submit" className="md:col-span-2 bg-indigo-600 text-white py-2 rounded-lg font-bold hover:bg-indigo-700 transition">
-            Guardar Empresa
-          </button>
-        </form>
+    <div className="p-4 md:p-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* COLUMNA 1: EMPRESAS */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <h2 className="font-bold text-slate-700 mb-4 flex items-center">🏢 Empresas</h2>
+        <div className="space-y-2">
+          {empresas.map(emp => (
+            <button 
+              key={emp.id}
+              onClick={() => { setSelectedEmpresa(emp); fetchSitios(emp.id); }}
+              className={`w-full text-left p-3 rounded-lg border transition ${selectedEmpresa?.id === emp.id ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 hover:bg-slate-50'}`}
+            >
+              <p className="font-bold text-sm">{emp.nombre}</p>
+              <p className="text-[10px] text-slate-500 uppercase">{emp.ruc}</p>
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Tabla de Resultados */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th className="p-4 text-slate-700">Nombre</th>
-              <th className="p-4 text-slate-700">RUC</th>
-              <th className="p-4 text-slate-700">Contacto</th>
-              <th className="p-4 text-slate-700">Teléfono</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={4} className="p-4 text-center">Cargando...</td></tr>
-            ) : empresas.map((emp) => (
-              <tr key={emp.id} className="border-b border-slate-100 hover:bg-slate-50">
-                <td className="p-4 font-medium">{emp.nombre}</td>
-                <td className="p-4 text-slate-600">{emp.ruc}</td>
-                <td className="p-4 text-slate-600">{emp.contacto}</td>
-                <td className="p-4 text-slate-600">{emp.telefono}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* COLUMNA 2: SITIOS */}
+      <div className={`bg-white p-4 rounded-xl shadow-sm border border-slate-200 ${!selectedEmpresa && 'opacity-50'}`}>
+        <h2 className="font-bold text-slate-700 mb-4 flex items-center">📍 Sitios / Plantas</h2>
+        {selectedEmpresa && (
+          <>
+            <div className="flex gap-2 mb-4">
+              <input type="text" className="flex-1 p-2 border rounded text-sm" placeholder="Nuevo Sitio..." value={newSitio} onChange={e => setNewSitio(e.target.value)} />
+              <button onClick={agregarSitio} className="bg-slate-800 text-white px-3 py-1 rounded text-sm">+</button>
+            </div>
+            <div className="space-y-2">
+              {sitios.map(s => (
+                <button 
+                  key={s.id} onClick={() => { setSelectedSitio(s); fetchAreas(s.id); }}
+                  className={`w-full text-left p-2 rounded border text-sm ${selectedSitio?.id === s.id ? 'bg-slate-800 text-white' : 'bg-slate-50'}`}
+                >
+                  {s.nombre}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* COLUMNA 3: ÁREAS */}
+      <div className={`bg-white p-4 rounded-xl shadow-sm border border-slate-200 ${!selectedSitio && 'opacity-50'}`}>
+        <h2 className="font-bold text-slate-700 mb-4 flex items-center">🌳 Áreas (Ej: Extractora)</h2>
+        {selectedSitio && (
+          <>
+            <div className="flex gap-2 mb-4">
+              <input type="text" className="flex-1 p-2 border rounded text-sm" placeholder="Nueva Área..." value={newArea} onChange={e => setNewArea(e.target.value)} />
+              <button onClick={agregarArea} className="bg-emerald-600 text-white px-3 py-1 rounded text-sm">+</button>
+            </div>
+            <div className="space-y-2">
+              {areas.map(a => (
+                <div key={a.id} className="p-2 bg-emerald-50 text-emerald-800 border border-emerald-100 rounded text-sm font-medium">
+                  {a.nombre}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
