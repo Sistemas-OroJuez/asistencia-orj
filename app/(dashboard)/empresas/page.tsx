@@ -6,6 +6,7 @@ export default function EmpresasFullConfig() {
   const [empresas, setEmpresas] = useState<any[]>([]);
   const [selectedEmpresa, setSelectedEmpresa] = useState<any>(null);
   const [sitios, setSitios] = useState<any[]>([]);
+  const [selectedSitio, setSelectedSitio] = useState<any>(null); // ESTADO CORREGIDO
   const [areas, setAreas] = useState<any[]>([]);
   
   // Estados para formularios
@@ -25,6 +26,7 @@ export default function EmpresasFullConfig() {
     const { data } = await supabase.from('sitios').select('*').eq('empresa_id', empresaId).order('nombre', { ascending: true });
     setSitios(data || []);
     setAreas([]);
+    setSelectedSitio(null); // Limpiar sitio al cambiar empresa
   };
 
   const fetchAreas = async (sitioId: string) => {
@@ -44,14 +46,14 @@ export default function EmpresasFullConfig() {
   };
 
   const agregarSitio = async () => {
-    if (!newSitio.trim()) return;
+    if (!newSitio.trim() || !selectedEmpresa) return;
     const { error } = await supabase.from('sitios').insert([{ nombre: newSitio, empresa_id: selectedEmpresa.id }]);
     if (error) alert(error.message);
     else { setNewSitio(''); fetchSitios(selectedEmpresa.id); }
   };
 
   const agregarArea = async () => {
-    if (!newArea.trim()) return;
+    if (!newArea.trim() || !selectedSitio) return;
     const { error } = await supabase.from('areas').insert([{ nombre: newArea, sitio_id: selectedSitio.id }]);
     if (error) alert(error.message);
     else { setNewArea(''); fetchAreas(selectedSitio.id); }
@@ -101,7 +103,7 @@ export default function EmpresasFullConfig() {
         </div>
 
         {/* COLUMNA 2: SITIOS */}
-        <div className={`bg-white p-5 rounded-2xl border border-slate-200 shadow-sm ${!selectedEmpresa && 'opacity-40 pointer-events-none'}`}>
+        <div className={`bg-white p-5 rounded-2xl border border-slate-200 shadow-sm transition-opacity ${!selectedEmpresa && 'opacity-40 pointer-events-none'}`}>
           <h2 className="font-extrabold text-slate-800 mb-4 uppercase text-xs tracking-widest">2. Sitios de {selectedEmpresa?.nombre}</h2>
           <div className="flex flex-col gap-2 mb-6">
             <input type="text" placeholder="Nuevo Sitio (Ej: Planta A)" className="p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-indigo-400" value={newSitio} onChange={e => setNewSitio(e.target.value)} />
@@ -109,7 +111,11 @@ export default function EmpresasFullConfig() {
           </div>
           <div className="space-y-2">
             {sitios.map(s => (
-              <button key={s.id} onClick={() => { fetchAreas(s.id); }} className="w-full text-left p-3 rounded-xl border border-slate-200 bg-white font-medium text-sm">
+              <button 
+                key={s.id} 
+                onClick={() => { setSelectedSitio(s); fetchAreas(s.id); }} 
+                className={`w-full text-left p-3 rounded-xl border transition-all ${selectedSitio?.id === s.id ? 'bg-indigo-600 text-white border-indigo-600 font-bold' : 'bg-white border-slate-200 text-slate-700'}`}
+              >
                 {s.nombre}
               </button>
             ))}
@@ -117,10 +123,8 @@ export default function EmpresasFullConfig() {
         </div>
 
         {/* COLUMNA 3: ÁREAS */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm opacity-100">
-           <h2 className="font-extrabold text-slate-800 mb-4 uppercase text-xs tracking-widest">3. Áreas del Sitio</h2>
-           <p className="text-[10px] text-slate-400 mb-4 italic">* Las áreas sirven para filtrar permisos de supervisores.</p>
-           {/* Formulario y lista de áreas similar a Sitios... */}
+        <div className={`bg-white p-5 rounded-2xl border border-slate-200 shadow-sm transition-opacity ${!selectedSitio && 'opacity-40 pointer-events-none'}`}>
+           <h2 className="font-extrabold text-slate-800 mb-4 uppercase text-xs tracking-widest">3. Áreas de {selectedSitio?.nombre}</h2>
            <div className="flex flex-col gap-2 mb-6">
             <input type="text" placeholder="Nueva Área (Ej: Extractora)" className="p-3 border-2 border-slate-100 rounded-xl outline-none focus:border-emerald-400" value={newArea} onChange={e => setNewArea(e.target.value)} />
             <button onClick={agregarArea} className="bg-emerald-600 text-white font-bold py-2 rounded-xl text-sm">+ AGREGAR ÁREA</button>
