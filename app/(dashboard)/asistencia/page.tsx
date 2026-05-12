@@ -1,91 +1,112 @@
 ﻿'use client';
 import { useState, useEffect } from 'react';
-// Cambiamos la ruta para que busque desde la raíz del proyecto
-import { supabase } from '@/lib/supabase'; 
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 
-export default function AsistenciaPage() {
+export default function ControlAsistenciaPage() {
+  const supabase = createClientComponentClient();
   const [asistencias, setAsistencias] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchAsistencia = async () => {
-      try {
-        setLoading(true);
-        const { data, error } = await supabase
-          .from('asistencia')
-          .select('*')
-          .order('timestamp', { ascending: false })
-          .limit(50);
+    fetchAsistencias();
 
-        if (error) throw error;
-        setAsistencias(data || []);
-      } catch (error: any) {
-        console.error('Error cargando asistencias:', error.message);
-      } finally {
-        setLoading(false);
-      }
-    };
+    // Suscripción en tiempo real: Actualiza la lista si el script de Python inserta algo
+    const channel = supabase
+      .channel('asistencia_realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'asistencia' }, () => {
+        fetchAsistencias();
+      })
+      .subscribe();
 
-    fetchAsistencia();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
+  const fetchAsistencias = async () => {
+    // Hacemos un JOIN con la tabla empleados y áreas para traer el nombre real
+    const { data, error } = await supabase
+      .from('asistencia')
+      .select(`
+        id,
+        user_id,
+        timestamp,
+        status,
+        empresa_id,
+        empleados!inner (
+          nombre,
+          cedula,
+          areas (
+            nombre
+          )
+        )
+      `)
+      .order('timestamp', { ascending: false })
+      .limit(50);
+
+    if (error) console.error("Error:", error);
+    else setAsistencias(data || []);
+    setLoading(false);
+  };
+
   return (
-    <div className="p-8">
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-4 md:p-8 max-w-6xl mx-auto">
+      <header className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Control de Asistencia</h1>
-          <p className="text-slate-500">Últimos marcajes sincronizados (OroJuez)</p>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">CONTROL DE ASISTENCIA</h1>
+          <p className="text-slate-500 text-sm">Marcaciones sincronizadas desde el reloj ZK</p>
         </div>
-        <button 
-          onClick={() => window.location.reload()}
-          className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
-        >
-          Refrescar
-        </button>
-      </div>
+        <div className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
+          <div className="w-2 h-2 bg-emerald-500 rounded-full"></div> EN VIVO
+        </div>
+      </header>
 
       {loading ? (
-        <div className="flex justify-center p-10 text-slate-500 italic">Cargando registros...</div>
+        <div className="text-center py-20 text-slate-400">Cargando marcaciones...</div>
       ) : (
-        <div className="bg-white shadow-sm rounded-xl overflow-hidden border border-slate-200">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="p-4 font-semibold text-slate-700">Usuario ID</th>
-                <th className="p-4 font-semibold text-slate-700">Fecha y Hora</th>
-                <th className="p-4 font-semibold text-slate-700">Estado</th>
-                <th className="p-4 font-semibold text-slate-700">Acción</th>
-              </tr>
-            </thead>
-            <tbody>
-              {asistencias.length > 0 ? (
-                asistencias.map((reg) => (
-                  <tr key={reg.id} className="border-b border-slate-100 hover:bg-slate-50 transition">
-                    <td className="p-4 text-slate-600 font-medium">{reg.user_id}</td>
-                    <td className="p-4 text-slate-600">
-                      {new Date(reg.timestamp).toLocaleString('es-EC')}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-100">
+                  <th className="p-4 text-xs font-extrabold text-slate-400 uppercase">Empleado</th>
+                  <th className="p-4 text-xs font-extrabold text-slate-400 uppercase">Área</th>
+                  <th className="p-4 text-xs font-extrabold text-slate-400 uppercase">Fecha y Hora</th>
+                  <th className="p-4 text-xs font-extrabold text-slate-400 uppercase text-center">ID Reloj</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {asistencias.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4">
+                      <p className="font-bold text-slate-800">{item.empleados?.nombre || 'Desconocido'}</p>
+                      <p className="text-[10px] text-slate-400 font-mono">{item.empleados?.cedula}</p>
                     </td>
                     <td className="p-4">
-                      <span className={`px-2 py-1 rounded-full text-[10px] uppercase font-bold ${reg.status === 1 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                        {reg.status === 1 ? 'Verificado' : 'Normal'}
+                      <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-md text-xs font-medium">
+                        {item.empleados?.areas?.nombre || 'Sin Área'}
                       </span>
                     </td>
                     <td className="p-4">
-                      <span className={`font-bold text-sm ${reg.punch === 0 ? 'text-blue-600' : 'text-orange-600'}`}>
-                        {reg.punch === 0 ? '● ENTRADA' : '○ SALIDA'}
+                      <p className="text-sm text-slate-700 font-medium">
+                        {item.timestamp ? format(new Date(item.timestamp), "dd MMM, yyyy - HH:mm", { locale: es }) : '---'}
+                      </p>
+                    </td>
+                    <td className="p-4 text-center">
+                      <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded font-mono">
+                        #{item.user_id}
                       </span>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={4} className="p-10 text-center text-slate-400">
-                    No se encontraron marcajes en la base de datos.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {asistencias.length === 0 && (
+            <div className="p-10 text-center text-slate-400 italic text-sm">
+              No hay marcaciones registradas hoy.
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -6,12 +6,48 @@ export default function DashboardPrincipal() {
   const router = useRouter();
 
   const modulos = [
-    { nombre: 'Control Asistencia', icono: '⌚', color: 'bg-blue-600', link: '/asistencia', desc: 'Marcajes en vivo' },
-    { nombre: 'Aprobación Horas', icono: '✅', color: 'bg-red-600', link: '/aprobaciones', desc: 'Validar extras por área' },
-    { nombre: 'Empresas', icono: '🏢', color: 'bg-indigo-700', link: '/empresas', desc: 'Sitios y Departamentos' },
-    { nombre: 'Dispositivos', icono: '📟', color: 'bg-slate-700', link: '/dispositivos', desc: 'Relojes ZKTeco' },
-    { nombre: 'Enrolamiento Personal', icono: '👥', color: 'bg-emerald-600', link: '/empleados', desc: 'Vincular ID de Reloj' },
-    { nombre: 'Reportes de Horas', icono: '📊', color: 'bg-amber-600', link: '/reportes', desc: 'Cálculos finales' },
+    { 
+      nombre: 'Control de Jornadas', 
+      icono: '⏱️', 
+      color: 'bg-indigo-600', 
+      link: '/jornadas', // <-- Cambiado de /asistencia a /jornadas
+      desc: 'Entradas, salidas y horas' 
+    },
+    { 
+      nombre: 'Aprobación Horas', 
+      icono: '✅', 
+      color: 'bg-rose-600', 
+      link: '/aprobaciones', 
+      desc: 'Validar extras y turnos' 
+    },
+    { 
+      nombre: 'Estructura Negocio', 
+      icono: '🏢', 
+      color: 'bg-slate-800', 
+      link: '/empresas', 
+      desc: 'Empresas, Sitios y Áreas' 
+    },
+    { 
+      nombre: 'Dispositivos', 
+      icono: '📟', 
+      color: 'bg-blue-700', 
+      link: '/dispositivos', 
+      desc: 'Relojes ZKTeco' 
+    },
+    { 
+      nombre: 'Enrolamiento Personal', 
+      icono: '👤', 
+      color: 'bg-emerald-600', 
+      link: '/empleados', 
+      desc: 'Vincular ID de Reloj' 
+    },
+    { 
+      nombre: 'Reportes y Nómina', 
+      icono: '📊', 
+      color: 'bg-amber-500', 
+      link: '/reportes', 
+      desc: 'Cálculos y exportación' 
+    },
   ];
 
   const handleLogout = async () => {
@@ -21,55 +57,57 @@ export default function DashboardPrincipal() {
   };
 
   return (
-    <main className="p-4 md:p-8 bg-gray-50 min-h-screen">
+    <main className="p-4 md:p-8 bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        {/* Header con Logout */}
-        <header className="flex justify-between items-center mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+        {/* Header Superior */}
+        <header className="flex justify-between items-center mb-10 bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
           <div>
-            <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight">Sistemas OroJuez</h1>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Admin Panel v2.0</p>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">ORO JUEZ <span className="text-indigo-600">SISTEMAS</span></h1>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em]">Gestión de Asistencia v2.0</p>
           </div>
           <button 
             onClick={handleLogout}
-            className="text-xs font-bold bg-slate-100 text-slate-600 px-4 py-2 rounded-lg hover:bg-red-50 hover:text-red-600 transition-all active:scale-95"
+            className="text-xs font-bold bg-slate-100 text-slate-500 px-5 py-2.5 rounded-xl hover:bg-red-50 hover:text-red-600 transition-all active:scale-95 border border-transparent hover:border-red-100"
           >
             CERRAR SESIÓN
           </button>
         </header>
 
-        {/* Grid de Módulos Responsivo */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+        {/* Malla de Módulos */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-8">
           {modulos.map((m) => (
             <a 
               key={m.link} 
               href={m.link} 
-              className="group relative bg-white p-5 rounded-2xl shadow-sm border border-slate-200 active:scale-95 md:hover:shadow-lg md:hover:border-indigo-100 transition-all flex items-center space-x-4 h-28 md:h-32"
+              className="group relative bg-white p-6 rounded-3xl shadow-sm border border-slate-200 active:scale-[0.98] hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex items-center space-x-5"
             >
-              {/* Barra lateral de color */}
-              <div className={`absolute top-0 left-0 w-2 h-full rounded-l-2xl ${m.color}`}></div>
+              {/* Indicador de Color Vertical */}
+              <div className={`absolute top-6 left-0 w-1.5 h-12 rounded-r-full ${m.color}`}></div>
               
-              <div className="text-3xl md:text-4xl bg-slate-50 p-3 rounded-xl group-hover:bg-white transition-colors">
+              <div className="text-4xl bg-slate-50 p-4 rounded-2xl group-hover:scale-110 group-hover:bg-white transition-all duration-300">
                 {m.icono}
               </div>
               
               <div className="flex-1">
-                <h2 className="text-lg md:text-xl font-bold text-slate-800 leading-tight group-hover:text-indigo-900 transition-colors">
+                <h2 className="text-xl font-extrabold text-slate-800 leading-tight group-hover:text-indigo-600 transition-colors">
                   {m.nombre}
                 </h2>
-                <p className="text-xs md:text-sm text-slate-500 mt-1">{m.desc}</p>
+                <p className="text-sm text-slate-500 mt-1 font-medium">{m.desc}</p>
               </div>
 
-              <div className="text-slate-300 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all">
+              <div className="text-slate-200 group-hover:text-indigo-400 transition-all transform translate-x-2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="9 5l7 7-7 7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="9 5l7 7-7 7" />
                 </svg>
               </div>
             </a>
           ))}
         </div>
 
-        <footer className="mt-12 text-center text-slate-400 text-[10px] uppercase tracking-widest font-medium">
-          OroJuez Attendance System &copy; 2026 - Gestión de Talento Humano
+        <footer className="mt-16 text-center border-t border-slate-200 pt-8">
+          <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">
+            Desarrollado para Sistemas OroJuez &copy; 2026
+          </p>
         </footer>
       </div>
     </main>
