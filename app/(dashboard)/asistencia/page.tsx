@@ -1,19 +1,18 @@
 ﻿'use client';
 import { useState, useEffect } from 'react';
-// Importación corregida apuntando a la carpeta lib que está 2 niveles arriba
-import { supabase } from '../../lib/supabase';
+// Cambiamos la ruta para que busque desde la raíz del proyecto
+import { supabase } from '@/lib/supabase'; 
 
 export default function AsistenciaPage() {
   const [asistencias, setAsistencias] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Cargar datos desde Supabase
   useEffect(() => {
     const fetchAsistencia = async () => {
       try {
         setLoading(true);
         const { data, error } = await supabase
-          .from('asistencia') // Asegúrate que tu tabla se llame así
+          .from('asistencia')
           .select('*')
           .order('timestamp', { ascending: false })
           .limit(50);
@@ -35,27 +34,27 @@ export default function AsistenciaPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Control de Asistencia</h1>
-          <p className="text-slate-500">Últimos marcajes sincronizados desde el reloj</p>
+          <p className="text-slate-500">Últimos marcajes sincronizados (OroJuez)</p>
         </div>
         <button 
           onClick={() => window.location.reload()}
           className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
         >
-          Actualizar
+          Refrescar
         </button>
       </div>
 
       {loading ? (
-        <p>Cargando registros...</p>
+        <div className="flex justify-center p-10 text-slate-500 italic">Cargando registros...</div>
       ) : (
-        <div className="bg-white shadow-md rounded-xl overflow-hidden border border-slate-200">
+        <div className="bg-white shadow-sm rounded-xl overflow-hidden border border-slate-200">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="p-4 font-semibold text-slate-700">Usuario ID</th>
                 <th className="p-4 font-semibold text-slate-700">Fecha y Hora</th>
                 <th className="p-4 font-semibold text-slate-700">Estado</th>
-                <th className="p-4 font-semibold text-slate-700">Tipo (Punch)</th>
+                <th className="p-4 font-semibold text-slate-700">Acción</th>
               </tr>
             </thead>
             <tbody>
@@ -67,13 +66,13 @@ export default function AsistenciaPage() {
                       {new Date(reg.timestamp).toLocaleString('es-EC')}
                     </td>
                     <td className="p-4">
-                      <span className={`px-2 py-1 rounded-full text-xs ${reg.status === 1 ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                      <span className={`px-2 py-1 rounded-full text-[10px] uppercase font-bold ${reg.status === 1 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                         {reg.status === 1 ? 'Verificado' : 'Normal'}
                       </span>
                     </td>
                     <td className="p-4">
-                      <span className={`font-semibold ${reg.punch === 0 ? 'text-indigo-600' : 'text-orange-600'}`}>
-                        {reg.punch === 0 ? 'ENTRADA' : 'SALIDA'}
+                      <span className={`font-bold text-sm ${reg.punch === 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                        {reg.punch === 0 ? '● ENTRADA' : '○ SALIDA'}
                       </span>
                     </td>
                   </tr>
@@ -81,7 +80,7 @@ export default function AsistenciaPage() {
               ) : (
                 <tr>
                   <td colSpan={4} className="p-10 text-center text-slate-400">
-                    No hay registros de asistencia encontrados.
+                    No se encontraron marcajes en la base de datos.
                   </td>
                 </tr>
               )}
