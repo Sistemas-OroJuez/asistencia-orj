@@ -4,111 +4,116 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
-export default function ControlAsistenciaPage() {
+export default function MonitorAsistenciaPage() {
   const supabase = createClientComponentClient();
-  const [asistencias, setAsistencias] = useState<any[]>([]);
+  const [registros, setRegistros] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchAsistencias();
-
-    // Suscripción en tiempo real: Actualiza la lista si el script de Python inserta algo
+    fetchAsistencia();
+    // Suscripción en tiempo real para ver las marcas apenas lleguen del reloj
     const channel = supabase
       .channel('asistencia_realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'asistencia' }, () => {
-        fetchAsistencias();
+        fetchAsistencia();
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const fetchAsistencias = async () => {
-    // Hacemos un JOIN con la tabla empleados y áreas para traer el nombre real
+  const fetchAsistencia = async () => {
+    setLoading(true);
+    // Hacemos un JOIN con la tabla empleados para traer el nombre
+    // Nota: Usamos 'user_id' porque es el nombre que quedó en tu tabla de asistencia
     const { data, error } = await supabase
       .from('asistencia')
       .select(`
         id,
-        user_id,
         timestamp,
         status,
-        empresa_id,
+        user_id,
         empleados!inner (
           nombre,
-          cedula,
-          areas (
-            nombre
-          )
+          empresas (nombre),
+          sitios (nombre)
         )
       `)
       .order('timestamp', { ascending: false })
       .limit(50);
 
     if (error) console.error("Error:", error);
-    else setAsistencias(data || []);
+    else setRegistros(data || []);
     setLoading(false);
   };
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <header className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">CONTROL DE ASISTENCIA</h1>
-          <p className="text-slate-500 text-sm">Marcaciones sincronizadas desde el reloj ZK</p>
-        </div>
-        <div className="flex items-center gap-2 bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
-          <div className="w-2 h-2 bg-emerald-500 rounded-full"></div> EN VIVO
-        </div>
+    <div className="p-4 md:p-8 max-w-7xl mx-auto">
+      <header className="mb-8">
+        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+          ⏱️ Monitor de Asistencia
+        </h1>
+        <p className="text-slate-500 text-sm">
+          Registros entrantes en tiempo real desde el biométrico.
+        </p>
       </header>
 
-      {loading ? (
-        <div className="text-center py-20 text-slate-400">Cargando marcaciones...</div>
-      ) : (
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="p-4 text-xs font-extrabold text-slate-400 uppercase">Empleado</th>
-                  <th className="p-4 text-xs font-extrabold text-slate-400 uppercase">Área</th>
-                  <th className="p-4 text-xs font-extrabold text-slate-400 uppercase">Fecha y Hora</th>
-                  <th className="p-4 text-xs font-extrabold text-slate-400 uppercase text-center">ID Reloj</th>
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Colaborador</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Empresa / Sitio</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Fecha y Hora</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase text-center">Tipo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && registros.length === 0 ? (
+                <tr><td colSpan={4} className="p-10 text-center text-slate-400 font-bold animate-pulse">Cargando timbradas...</td></tr>
+              ) : registros.map((reg) => (
+                <tr key={reg.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                  <td className="p-4">
+                    <div className="font-bold text-slate-800 uppercase text-xs">
+                      {reg.empleados?.nombre || `ID DESCONOCIDO: ${reg.user_id}`}
+                    </div>
+                    <div className="text-[10px] text-indigo-500 font-bold">Reloj ID: {reg.user_id}</div>
+                  </td>
+                  <td className="p-4">
+                    <div className="text-[10px] font-bold text-slate-600 uppercase">
+                      {reg.empleados?.empresas?.nombre || '---'}
+                    </div>
+                    <div className="text-[9px] text-slate-400 uppercase">
+                      {reg.empleados?.sitios?.nombre || '---'}
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <div className="text-xs font-bold text-slate-700">
+                      {format(new Date(reg.timestamp), "eeee, d 'de' MMMM", { locale: es })}
+                    </div>
+                    <div className="text-[11px] font-black text-indigo-600">
+                      {format(new Date(reg.timestamp), "HH:mm:ss")}
+                    </div>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase ${
+                      reg.status === 0 
+                        ? 'bg-green-100 text-green-700' 
+                        : 'bg-orange-100 text-orange-700'
+                    }`}>
+                      {reg.status === 0 ? 'Entrada' : 'Salida'}
+                    </span>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {asistencias.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4">
-                      <p className="font-bold text-slate-800">{item.empleados?.nombre || 'Desconocido'}</p>
-                      <p className="text-[10px] text-slate-400 font-mono">{item.empleados?.cedula}</p>
-                    </td>
-                    <td className="p-4">
-                      <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded-md text-xs font-medium">
-                        {item.empleados?.areas?.nombre || 'Sin Área'}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <p className="text-sm text-slate-700 font-medium">
-                        {item.timestamp ? format(new Date(item.timestamp), "dd MMM, yyyy - HH:mm", { locale: es }) : '---'}
-                      </p>
-                    </td>
-                    <td className="p-4 text-center">
-                      <span className="text-xs bg-slate-100 text-slate-500 px-2 py-1 rounded font-mono">
-                        #{item.user_id}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {asistencias.length === 0 && (
-            <div className="p-10 text-center text-slate-400 italic text-sm">
-              No hay marcaciones registradas hoy.
-            </div>
-          )}
+              ))}
+              {!loading && registros.length === 0 && (
+                <tr><td colSpan={4} className="p-10 text-center text-slate-400 font-bold">No hay registros hoy.</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
     </div>
   );
 }
