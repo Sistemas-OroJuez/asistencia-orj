@@ -10,15 +10,15 @@ export default function DashboardPrincipal() {
       nombre: 'Control de Jornadas', 
       icono: '⏱️', 
       color: 'bg-indigo-600', 
-      link: '/jornadas', // Apunta a la nueva lógica inteligente
+      link: '/jornadas', 
       desc: 'Entradas, salidas y horas' 
     },
     { 
-      nombre: 'Aprobación Horas', 
-      icono: '✅', 
-      color: 'bg-rose-600', 
-      link: '/aprobaciones', 
-      desc: 'Validar extras y turnos' 
+      nombre: 'Configurar Turnos', 
+      icono: '📅', 
+      color: 'bg-violet-600', 
+      link: '/turnos', 
+      desc: 'Horarios y tolerancias' 
     },
     { 
       nombre: 'Estructura Negocio', 
@@ -42,11 +42,11 @@ export default function DashboardPrincipal() {
       desc: 'Vincular ID de Reloj' 
     },
     { 
-      nombre: 'Reportes y Nómina', 
-      icono: '📊', 
-      color: 'bg-amber-500', 
-      link: '/reportes', 
-      desc: 'Cálculos y exportación' 
+      nombre: 'Aprobación Horas', 
+      icono: '✅', 
+      color: 'bg-rose-600', 
+      link: '/aprobaciones', 
+      desc: 'Validar extras y turnos' 
     },
   ];
 
