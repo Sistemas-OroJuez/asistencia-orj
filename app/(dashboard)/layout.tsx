@@ -1,57 +1,65 @@
 'use client';
 import { useRouter, usePathname } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  // Usamos el cliente específico para componentes de Next.js
+  const supabase = createClientComponentClient();
 
-  const handleLogout = async () => {
-    // 1. Cerramos sesión en el servidor de Supabase
-    await supabase.auth.signOut();
+  const handleLogout = async (e: React.MouseEvent) => {
+    e.preventDefault(); // Evitamos cualquier comportamiento por defecto
     
-    // 2. Limpiamos el almacenamiento local por seguridad extra
-    if (typeof window !== 'undefined') {
-      localStorage.clear();
-      sessionStorage.clear();
+    try {
+      // 1. Intentamos cerrar sesión en Supabase
+      await supabase.auth.signOut();
       
-      // 3. Forzamos redirección total. Esto "rompe" la sesión en el navegador
-      // y hace que el Middleware te pida login obligatoriamente.
+      // 2. Limpieza manual de cookies y storage
+      document.cookie.split(";").forEach((c) => {
+        document.cookie = c
+          .replace(/^ +/, "")
+          .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+      });
+      localStorage.clear();
+      
+      // 3. Salida forzada
+      window.location.replace('/login');
+    } catch (error) {
+      console.error("Error al cerrar sesión:", error);
+      // Si falla Supabase, igual lo mandamos al login
       window.location.href = '/login';
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Barra de Navegación Superior */}
-      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            {/* Botón de Regresar: Solo se muestra si NO estamos en el inicio */}
             {pathname !== '/' && (
               <button 
                 onClick={() => router.push('/')}
-                className="flex items-center text-indigo-600 hover:text-indigo-800 font-bold text-sm"
+                className="flex items-center text-indigo-600 font-bold text-sm bg-indigo-50 px-3 py-1 rounded-full"
               >
-                <span className="mr-1 text-xl">←</span> Inicio
+                ← Inicio
               </button>
             )}
-            <span className="text-slate-900 font-extrabold text-lg hidden md:block">
-              OroJuez <span className="text-indigo-600">Admin</span>
+            <span className="text-slate-900 font-extrabold text-lg">
+              OroJuez <span className="text-indigo-600 italic">Admin</span>
             </span>
           </div>
 
           <button 
             onClick={handleLogout}
-            className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-50 hover:text-red-600 transition-all active:scale-95"
+            className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-700 shadow-md active:scale-95 transition-all"
           >
             CERRAR SESIÓN
           </button>
         </div>
       </nav>
 
-      {/* Contenido de la página */}
-      <main className="max-w-7xl mx-auto">
+      <main className="max-w-7xl mx-auto p-4">
         {children}
       </main>
     </div>
