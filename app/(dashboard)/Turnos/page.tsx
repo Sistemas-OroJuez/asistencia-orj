@@ -36,7 +36,7 @@ export default function TurnosPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-black text-slate-900 mb-6 uppercase tracking-tight">⚙️ Configuración de Turnos</h1>
+      <h1 className="text-2xl font-black text-slate-900 mb-6 uppercase tracking-tight">⚙️ Configuración de Turnos y Horarios</h1>
 
       {/* Formulario de Creación */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 mb-8">
