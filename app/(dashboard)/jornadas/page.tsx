@@ -15,7 +15,11 @@ export default function JornadasPage() {
     // Suscripción en tiempo real
     const channel = supabase
       .channel('jornadas_live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas_procesadas' }, () => {
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'jornadas_procesadas' 
+      }, () => {
         fetchJornadas();
       })
       .subscribe();
@@ -24,7 +28,8 @@ export default function JornadasPage() {
   }, []);
 
   const fetchJornadas = async () => {
-    // Hemos simplificado la consulta para asegurar que traiga datos aunque falten áreas
+    setLoading(true);
+    // Ajustamos la consulta para que coincida con la estructura real de tus tablas
     const { data, error } = await supabase
       .from('jornadas_procesadas')
       .select(`
@@ -32,8 +37,10 @@ export default function JornadasPage() {
         empleados (
           nombre,
           areas (
-            nombre, 
-            sitios (nombre)
+            nombre
+          ),
+          sitios (
+            nombre
           )
         )
       `)
@@ -79,7 +86,8 @@ export default function JornadasPage() {
                     </h3>
                   </div>
                   <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">
-                    {j.empleados?.areas?.sitios?.nombre || 'Sin Sitio'} • {j.empleados?.areas?.nombre || 'Sin Área'}
+                    {/* Acceso directo a sitios desde empleados según tu esquema */}
+                    {j.empleados?.sitios?.nombre || 'Sin Sitio'} • {j.empleados?.areas?.nombre || 'Sin Área'}
                   </p>
                 </div>
 
@@ -90,6 +98,12 @@ export default function JornadasPage() {
                     <p className="text-sm font-bold text-slate-700">
                       {j.entrada ? format(new Date(j.entrada), "iii d MMM, HH:mm", { locale: es }) : '---'}
                     </p>
+                    {/* Indicador de Atraso si existe el dato */}
+                    {j.minutos_atraso > 0 && (
+                      <span className="text-[9px] font-bold text-red-500">
+                        {j.minutos_atraso} min atraso
+                      </span>
+                    )}
                   </div>
                   <div>
                     <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Salida</p>
@@ -98,7 +112,7 @@ export default function JornadasPage() {
                         {format(new Date(j.salida), "iii d MMM, HH:mm", { locale: es })}
                       </p>
                     ) : (
-                      <span className="text-[10px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded border border-emerald-100">TRABAJANDO...</span>
+                      <span className="text-[10px] font-black bg-emerald-50 text-emerald-600 px-2 py-1 rounded border border-emerald-100 uppercase">En Turno</span>
                     )}
                   </div>
                 </div>
@@ -107,9 +121,9 @@ export default function JornadasPage() {
                 <div className="bg-slate-50 p-4 rounded-xl text-center min-w-[140px] border border-slate-100">
                   <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Tiempo Total</p>
                   <p className="text-lg font-black text-indigo-600">
-                    {j.salida 
+                    {j.entrada && j.salida 
                       ? formatDistanceStrict(new Date(j.entrada), new Date(j.salida), { locale: es })
-                      : 'En curso'
+                      : j.entrada ? 'Calculando...' : '---'
                     }
                   </p>
                 </div>
@@ -125,7 +139,7 @@ export default function JornadasPage() {
                 No hay jornadas registradas
               </p>
               <p className="text-slate-400 text-xs mt-2">
-                Las marcas del reloj aparecerán aquí automáticamente.
+                Verifica que los empleados tengan área, sitio y turno asignados.
               </p>
             </div>
           )}
