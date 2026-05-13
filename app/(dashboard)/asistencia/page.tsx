@@ -11,51 +11,70 @@ export default function MonitorAsistenciaPage() {
 
   useEffect(() => {
     fetchAsistencia();
-    // Suscripción en tiempo real para ver las marcas apenas lleguen del reloj
+    
+    // Suscripción Realtime corregida
     const channel = supabase
       .channel('asistencia_realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'asistencia' }, () => {
-        fetchAsistencia();
-      })
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'asistencia' }, 
+        () => {
+          console.log("Nuevo cambio detectado, recargando...");
+          fetchAsistencia();
+        }
+      )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchAsistencia = async () => {
-    setLoading(true);
-    // Hacemos un JOIN con la tabla empleados para traer el nombre
-    // Nota: Usamos 'user_id' porque es el nombre que quedó en tu tabla de asistencia
-    const { data, error } = await supabase
-      .from('asistencia')
-      .select(`
-        id,
-        timestamp,
-        status,
-        user_id,
-        empleados!inner (
-          nombre,
-          empresas (nombre),
-          sitios (nombre)
-        )
-      `)
-      .order('timestamp', { ascending: false })
-      .limit(50);
+    try {
+      setLoading(true);
+      // Traemos los timbrajes. Quitamos el !inner para evitar que desaparezcan si hay error de relación
+      const { data, error } = await supabase
+        .from('asistencia')
+        .select(`
+          id,
+          timestamp,
+          status,
+          user_id,
+          empleados (
+            nombre,
+            empresas (nombre),
+            sitios (nombre)
+          )
+        `)
+        .order('timestamp', { ascending: false })
+        .limit(50);
 
-    if (error) console.error("Error:", error);
-    else setRegistros(data || []);
-    setLoading(false);
+      if (error) throw error;
+      setRegistros(data || []);
+    } catch (error) {
+      console.error("Error en fetchAsistencia:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
-      <header className="mb-8">
-        <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
-          ⏱️ Monitor de Asistencia
-        </h1>
-        <p className="text-slate-500 text-sm">
-          Registros entrantes en tiempo real desde el biométrico.
-        </p>
+      <header className="mb-8 flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+            ⏱️ Monitor de Asistencia
+          </h1>
+          <p className="text-slate-500 text-sm">
+            Registros entrantes en tiempo real desde el biométrico.
+          </p>
+        </div>
+        <button 
+          onClick={fetchAsistencia}
+          className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold transition-all"
+        >
+          🔄 ACTUALIZAR
+        </button>
       </header>
 
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
@@ -71,12 +90,18 @@ export default function MonitorAsistenciaPage() {
             </thead>
             <tbody>
               {loading && registros.length === 0 ? (
-                <tr><td colSpan={4} className="p-10 text-center text-slate-400 font-bold animate-pulse">Cargando timbradas...</td></tr>
+                <tr>
+                  <td colSpan={4} className="p-10 text-center text-slate-400 font-bold animate-pulse">
+                    Cargando timbradas...
+                  </td>
+                </tr>
               ) : registros.map((reg) => (
                 <tr key={reg.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                   <td className="p-4">
                     <div className="font-bold text-slate-800 uppercase text-xs">
-                      {reg.empleados?.nombre || `ID DESCONOCIDO: ${reg.user_id}`}
+                      {reg.empleados?.nombre || (
+                        <span className="text-red-400">DESCONOCIDO (ID: {reg.user_id})</span>
+                      )}
                     </div>
                     <div className="text-[10px] text-indigo-500 font-bold">Reloj ID: {reg.user_id}</div>
                   </td>
@@ -98,17 +123,22 @@ export default function MonitorAsistenciaPage() {
                   </td>
                   <td className="p-4 text-center">
                     <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase ${
-                      reg.status === 0 
+                      reg.status === 0 || reg.status === 1 || reg.status === 4 
                         ? 'bg-green-100 text-green-700' 
                         : 'bg-orange-100 text-orange-700'
                     }`}>
-                      {reg.status === 0 ? 'Entrada' : 'Salida'}
+                      {/* Dependiendo de tu reloj, 0 suele ser entrada. Ajustamos para mostrar algo siempre */}
+                      {reg.status === 0 ? 'Entrada' : reg.status === 1 ? 'Salida' : 'Marcación'}
                     </span>
                   </td>
                 </tr>
               ))}
               {!loading && registros.length === 0 && (
-                <tr><td colSpan={4} className="p-10 text-center text-slate-400 font-bold">No hay registros hoy.</td></tr>
+                <tr>
+                  <td colSpan={4} className="p-10 text-center text-slate-400 font-bold">
+                    No hay registros hoy.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
