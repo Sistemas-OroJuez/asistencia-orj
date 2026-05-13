@@ -1,7 +1,7 @@
 ﻿'use client';
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 export default function MonitorAsistenciaPage() {
@@ -12,13 +12,13 @@ export default function MonitorAsistenciaPage() {
   useEffect(() => {
     fetchAsistencia();
     
-    // Suscripción Realtime corregida
+    // Suscripción Realtime para detectar cualquier cambio en la tabla asistencia
     const channel = supabase
-      .channel('asistencia_realtime')
+      .channel('asistencia_realtime_v3')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'asistencia' }, 
         () => {
-          console.log("Nuevo cambio detectado, recargando...");
+          console.log("Cambio detectado en el reloj, actualizando...");
           fetchAsistencia();
         }
       )
@@ -32,27 +32,44 @@ export default function MonitorAsistenciaPage() {
   const fetchAsistencia = async () => {
     try {
       setLoading(true);
-      // Traemos los timbrajes. Quitamos el !inner para evitar que desaparezcan si hay error de relación
-      const { data, error } = await supabase
+      
+      // 1. Traemos los timbrajes brutos (asistencia)
+      const { data: asistenciaData, error: astError } = await supabase
         .from('asistencia')
-        .select(`
-          id,
-          timestamp,
-          status,
-          user_id,
-          empleados (
-            nombre,
-            empresas (nombre),
-            sitios (nombre)
-          )
-        `)
+        .select('*')
         .order('timestamp', { ascending: false })
         .limit(50);
 
-      if (error) throw error;
-      setRegistros(data || []);
+      if (astError) throw astError;
+
+      // 2. Traemos la lista de empleados para el cruce de nombres
+      const { data: empleadosData, error: empError } = await supabase
+        .from('empleados')
+        .select(`
+          nombre, 
+          user_id_reloj, 
+          empresas (nombre), 
+          sitios (nombre)
+        `);
+
+      if (empError) console.error("Error cargando empleados:", empError);
+
+      // 3. Cruzamos la información en el cliente
+      const registrosCombinados = (asistenciaData || []).map(reg => {
+        // Buscamos al empleado cuyo user_id_reloj coincida con el user_id de la asistencia
+        const empleado = empleadosData?.find(
+          e => String(e.user_id_reloj).trim() === String(reg.user_id).trim()
+        );
+        
+        return {
+          ...reg,
+          empleados: empleado // Agregamos la info del empleado al objeto
+        };
+      });
+
+      setRegistros(registrosCombinados);
     } catch (error) {
-      console.error("Error en fetchAsistencia:", error);
+      console.error("Error crítico en el monitor:", error);
     } finally {
       setLoading(false);
     }
@@ -66,12 +83,12 @@ export default function MonitorAsistenciaPage() {
             ⏱️ Monitor de Asistencia
           </h1>
           <p className="text-slate-500 text-sm">
-            Registros entrantes en tiempo real desde el biométrico.
+            Registros en tiempo real sincronizados con el biométrico.
           </p>
         </div>
         <button 
           onClick={fetchAsistencia}
-          className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 py-2 rounded-xl text-xs font-bold transition-all"
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-100"
         >
           🔄 ACTUALIZAR
         </button>
@@ -83,7 +100,7 @@ export default function MonitorAsistenciaPage() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Colaborador</th>
-                <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Empresa / Sitio</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Ubicación</th>
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Fecha y Hora</th>
                 <th className="p-4 text-[10px] font-black text-slate-400 uppercase text-center">Tipo</th>
               </tr>
@@ -92,7 +109,7 @@ export default function MonitorAsistenciaPage() {
               {loading && registros.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="p-10 text-center text-slate-400 font-bold animate-pulse">
-                    Cargando timbradas...
+                    Sincronizando con el reloj...
                   </td>
                 </tr>
               ) : registros.map((reg) => (
@@ -100,7 +117,7 @@ export default function MonitorAsistenciaPage() {
                   <td className="p-4">
                     <div className="font-bold text-slate-800 uppercase text-xs">
                       {reg.empleados?.nombre || (
-                        <span className="text-red-400">DESCONOCIDO (ID: {reg.user_id})</span>
+                        <span className="text-red-500 font-black">ID RECONOCIDO: {reg.user_id}</span>
                       )}
                     </div>
                     <div className="text-[10px] text-indigo-500 font-bold">Reloj ID: {reg.user_id}</div>
@@ -115,20 +132,19 @@ export default function MonitorAsistenciaPage() {
                   </td>
                   <td className="p-4">
                     <div className="text-xs font-bold text-slate-700">
-                      {format(new Date(reg.timestamp), "eeee, d 'de' MMMM", { locale: es })}
+                      {format(parseISO(reg.timestamp), "eeee, d 'de' MMMM", { locale: es })}
                     </div>
                     <div className="text-[11px] font-black text-indigo-600">
-                      {format(new Date(reg.timestamp), "HH:mm:ss")}
+                      {format(parseISO(reg.timestamp), "HH:mm:ss")}
                     </div>
                   </td>
                   <td className="p-4 text-center">
                     <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase ${
-                      reg.status === 0 || reg.status === 1 || reg.status === 4 
+                      reg.status === 0 
                         ? 'bg-green-100 text-green-700' 
                         : 'bg-orange-100 text-orange-700'
                     }`}>
-                      {/* Dependiendo de tu reloj, 0 suele ser entrada. Ajustamos para mostrar algo siempre */}
-                      {reg.status === 0 ? 'Entrada' : reg.status === 1 ? 'Salida' : 'Marcación'}
+                      {reg.status === 0 ? 'Entrada' : 'Salida'}
                     </span>
                   </td>
                 </tr>
@@ -136,7 +152,7 @@ export default function MonitorAsistenciaPage() {
               {!loading && registros.length === 0 && (
                 <tr>
                   <td colSpan={4} className="p-10 text-center text-slate-400 font-bold">
-                    No hay registros hoy.
+                    No se encontraron registros recientes.
                   </td>
                 </tr>
               )}
