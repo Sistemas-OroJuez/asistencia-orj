@@ -30,7 +30,9 @@ export default function JornadasPage() {
   const fetchJornadas = async () => {
     setLoading(true);
     try {
-      // Consulta optimizada: Separamos áreas y sitios para evitar que el JOIN falle
+      // CONSULTA ACTUALIZADA: 
+      // Pedimos los datos del empleado y sus relaciones de forma independiente 
+      // para evitar que un fallo en 'areas' bloquee toda la fila.
       const { data, error } = await supabase
         .from('jornadas_procesadas')
         .select(`
@@ -50,13 +52,13 @@ export default function JornadasPage() {
         .limit(50);
 
       if (error) {
-        console.error("Error cargando jornadas:", error);
+        console.error("Error de Supabase:", error.message);
       } else {
-        console.log("Jornadas detectadas:", data);
+        console.log("Datos recibidos:", data);
         setJornadas(data || []);
       }
     } catch (err) {
-      console.error("Error inesperado:", err);
+      console.error("Error inesperado en el cliente:", err);
     } finally {
       setLoading(false);
     }
@@ -86,12 +88,14 @@ export default function JornadasPage() {
                 {/* Información del Empleado */}
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className={`w-3 h-3 rounded-full ${j.estado === 'abierta' || !j.salida ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
+                    {/* Punto de estado: parpadea si la jornada está abierta o no tiene salida */}
+                    <span className={`w-3 h-3 rounded-full ${!j.salida ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
                     <h3 className="font-bold text-slate-800 text-lg uppercase">
-                      {j.empleados?.nombre || 'Empleado no vinculado'}
+                      {j.empleados?.nombre || 'Empleado Desconocido'}
                     </h3>
                   </div>
                   <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">
+                    {/* Renderizado robusto de Sitio y Área */}
                     {j.empleados?.sitios?.nombre || 'Sin Sitio'} • {j.empleados?.areas?.nombre || 'Sin Área'}
                   </p>
                 </div>
@@ -104,7 +108,7 @@ export default function JornadasPage() {
                       {j.entrada ? format(new Date(j.entrada), "iii d MMM, HH:mm", { locale: es }) : '---'}
                     </p>
                     {j.minutos_atraso > 0 && (
-                      <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">
+                      <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-100">
                         +{Math.round(j.minutos_atraso)} min atraso
                       </span>
                     )}
@@ -127,7 +131,7 @@ export default function JornadasPage() {
                   <p className="text-lg font-black text-indigo-600">
                     {j.entrada && j.salida 
                       ? formatDistanceStrict(new Date(j.entrada), new Date(j.salida), { locale: es })
-                      : j.entrada ? 'Calculando...' : '---'
+                      : j.entrada ? 'Contando...' : '---'
                     }
                   </p>
                 </div>
@@ -140,10 +144,10 @@ export default function JornadasPage() {
             <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl p-20 text-center">
               <div className="text-4xl mb-4">💤</div>
               <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">
-                No hay jornadas registradas
+                No hay registros para mostrar
               </p>
               <p className="text-slate-400 text-xs mt-2">
-                Verifica que el ID del reloj coincida con el del empleado.
+                Verifica los permisos RLS y las relaciones en Supabase.
               </p>
             </div>
           )}
