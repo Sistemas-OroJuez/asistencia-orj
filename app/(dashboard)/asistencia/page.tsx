@@ -36,22 +36,10 @@ export default function MonitorAsistencia() {
   async function fetchMarcas() {
     setLoading(true);
     try {
-      // 1. Cargamos TODOS los empleados con nombres de empresas y áreas
-      // Nota: Si tus tablas de relación tienen nombres distintos, cámbialos aquí
-      const { data: listaEmpleados, error: errEmp } = await supabase
+      const { data: listaEmpleados } = await supabase
         .from('empleados')
-        .select(`
-          id, 
-          nombre, 
-          empresa_id, 
-          area_id,
-          empresas (nombre),
-          areas (nombre)
-        `);
+        .select(`id, nombre, empresa_id, area_id, empresas(nombre), areas(nombre)`);
 
-      if (errEmp) console.error("Error cargando empleados:", errEmp);
-
-      // 2. Consulta de Marcas
       const { data: dataMarcas, error: errMarcas } = await supabase
         .from('asistencia')
         .select('*')
@@ -61,88 +49,98 @@ export default function MonitorAsistencia() {
 
       if (errMarcas) throw errMarcas;
 
-      // 3. CRUCE MANUAL ROBUSTO
       const cruzados = (dataMarcas || []).map(marca => {
-        // Buscamos coincidencia en id de empleado o intentamos limpiar el valor
         const idReloj = String(marca.user_id).trim();
-        
-        const infoEmpleado = listaEmpleados?.find(e => 
-          String(e.id).trim() === idReloj
-        );
-
-        return {
-          ...marca,
-          empleado_info: infoEmpleado
-        };
+        const infoEmpleado = listaEmpleados?.find(e => String(e.id).trim() === idReloj);
+        return { ...marca, empleado_info: infoEmpleado };
       });
 
-      // 4. FILTROS
       const filtrados = cruzados.filter(m => {
         const pasaEmpresa = filtroEmpresa === 'TODAS' || String(m.empleado_info?.empresa_id) === String(filtroEmpresa);
         const pasaArea = filtroArea === 'TODAS' || String(m.empleado_info?.area_id) === String(filtroArea);
-        const nombreBusqueda = (m.empleado_info?.nombre || "").toLowerCase();
-        const pasaNombre = nombreBusqueda.includes(filtroNombre.toLowerCase()) || String(m.user_id).includes(filtroNombre);
-
+        const pasaNombre = (m.empleado_info?.nombre || "").toLowerCase().includes(filtroNombre.toLowerCase()) || 
+                          String(m.user_id).includes(filtroNombre);
         return pasaEmpresa && pasaArea && pasaNombre;
       });
 
       setMarcas(filtrados);
     } catch (e) {
-      console.error("Error en Monitor:", e);
+      console.error("Error:", e);
     } finally {
       setLoading(false);
     }
   }
 
   const handleAction = async (esClon: boolean) => {
-    const nuevoTimestamp = `${form.fecha}T${form.hora}`;
-    const payload = { user_id: form.user_id, timestamp: nuevoTimestamp, status: 1, punch: 1 };
+    // Se envía tal cual, sin convertir a objeto Date para evitar cambios de zona horaria
+    const nuevoTimestamp = `${form.fecha} ${form.hora}`;
+
+    const payload = { 
+        user_id: form.user_id, 
+        timestamp: nuevoTimestamp, 
+        status: 1, 
+        punch: 1 
+    };
+
     try {
       if (esClon) {
         await supabase.from('asistencia').insert([payload]);
-        alert("Clonado");
+        alert("Registro clonado exactamente");
       } else {
         await supabase.from('asistencia').update(payload).eq('id', form.id);
-        alert("Actualizado");
+        alert("Registro actualizado correctamente");
       }
       setEditandoId(null);
       fetchMarcas();
-    } catch (error: any) { alert(error.message); }
+    } catch (error: any) {
+      alert("Error: " + error.message);
+    }
+  };
+
+  // Función para extraer la parte de la hora y fecha del STRING directamente
+  // Esto evita que el navegador aplique desfases UTC
+  const rawExtract = (timestampStr: string, type: 'date' | 'time') => {
+    if (!timestampStr) return "";
+    // Separamos el string por la 'T' o el espacio
+    const parts = timestampStr.split(/[T ]/);
+    if (type === 'date') return parts[0]; // yyyy-mm-dd
+    if (type === 'time') return parts[1]?.split('.')[0]; // hh:mm:ss
+    return "";
   };
 
   return (
     <div className="p-4 md:p-8 bg-slate-50 min-h-screen text-slate-900 font-sans">
       <div className="max-w-7xl mx-auto">
         <header className="mb-8 border-l-4 border-indigo-600 pl-4">
-          <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-800">🕒 Monitor de Marcas Brutas</h1>
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Auditoría OroJuez SA</p>
+          <h1 className="text-2xl font-black uppercase text-slate-800 tracking-tighter">🕒 Monitor de Marcas Brutas</h1>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Espejo Directo de Reloj • OroJuez SA</p>
         </header>
 
-        {/* FILTROS */}
-        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 mb-6 grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div className="md:col-span-1">
-            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Filtro Rápido</label>
-            <input type="text" placeholder="Nombre o ID..." className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={filtroNombre} onChange={(e) => setFiltroNombre(e.target.value)} />
+        {/* --- FILTROS --- */}
+        <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-200 mb-6 grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div>
+            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Empleado</label>
+            <input type="text" placeholder="ID o Nombre..." className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={filtroNombre} onChange={(e) => setFiltroNombre(e.target.value)} />
           </div>
           <div>
             <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Empresa</label>
             <select className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none" value={filtroEmpresa} onChange={e => setFiltroEmpresa(e.target.value)}>
-              <option value="TODAS">TODAS</option>
+              <option value="TODAS">TODAS LAS EMPRESAS</option>
               {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Área</label>
             <select className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none" value={filtroArea} onChange={e => setFiltroArea(e.target.value)}>
-              <option value="TODAS">TODAS</option>
+              <option value="TODAS">TODAS LAS ÁREAS</option>
               {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Rango</label>
+            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Rango Fechas</label>
             <div className="flex gap-1">
-              <input type="date" className="w-1/2 p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-bold" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} />
-              <input type="date" className="w-1/2 p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-bold" value={fechaFin} onChange={e => setFechaFin(e.target.value)} />
+              <input type="date" className="w-1/2 p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-bold outline-none" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} />
+              <input type="date" className="w-1/2 p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-bold outline-none" value={fechaFin} onChange={e => setFechaFin(e.target.value)} />
             </div>
           </div>
           <div className="flex items-end">
@@ -150,74 +148,74 @@ export default function MonitorAsistencia() {
           </div>
         </div>
 
-        {/* EDITOR */}
+        {/* --- EDITOR (FECHA/HORA PURA) --- */}
         {editandoId && (
           <div className="bg-indigo-600 text-white p-8 rounded-[2.5rem] mb-8 shadow-xl">
-             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
               <div>
-                <label className="block text-[10px] font-black uppercase mb-2">Nueva Fecha</label>
+                <label className="block text-[10px] font-black uppercase mb-2">Fecha Exacta</label>
                 <input type="date" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} />
               </div>
               <div>
-                <label className="block text-[10px] font-black uppercase mb-2">Nueva Hora</label>
+                <label className="block text-[10px] font-black uppercase mb-2">Hora Exacta</label>
                 <input type="time" step="1" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.hora} onChange={e => setForm({...form, hora: e.target.value})} />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => handleAction(false)} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all">Guardar Cambios</button>
+                <button onClick={() => handleAction(false)} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all">Actualizar</button>
                 <button onClick={() => handleAction(true)} className="flex-1 bg-white text-indigo-600 p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-50 transition-all">Clonar</button>
               </div>
-              <button onClick={() => setEditandoId(null)} className="text-xs font-bold underline opacity-50 hover:opacity-100">Cancelar</button>
+              <button onClick={() => setEditandoId(null)} className="text-xs font-bold underline opacity-50">Cancelar</button>
             </div>
           </div>
         )}
 
-        {/* TABLA */}
+        {/* --- TABLA (LECTURA DIRECTA DE STRING) --- */}
         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left">
             <thead>
-              <tr className="bg-slate-50/50 border-b border-slate-100">
-                <th className="p-6 text-[10px] font-black text-slate-400 uppercase">Colaborador / ID</th>
+              <tr className="bg-slate-50 border-b border-slate-100">
+                <th className="p-6 text-[10px] font-black text-slate-400 uppercase">Empleado</th>
                 <th className="p-6 text-[10px] font-black text-slate-400 uppercase">Empresa / Área</th>
                 <th className="p-6 text-[10px] font-black text-slate-400 uppercase text-center">Fecha y Hora</th>
-                <th className="p-6 text-right px-8">Acciones</th>
+                <th className="p-6 text-right px-8"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                <tr><td colSpan={4} className="p-20 text-center animate-pulse text-slate-300 font-black uppercase">Cargando datos de OroJuez...</td></tr>
-              ) : marcas.length === 0 ? (
-                <tr><td colSpan={4} className="p-20 text-center text-slate-400 font-bold uppercase text-xs italic">No hay registros</td></tr>
+                <tr><td colSpan={4} className="p-24 text-center animate-pulse text-slate-300 font-black uppercase text-xl">Leyendo marcas...</td></tr>
               ) : marcas.map((m) => (
-                <tr key={m.id} className="hover:bg-slate-50/80 transition-colors group">
-                  <td className="p-6 border-b border-slate-50">
+                <tr key={m.id} className="hover:bg-slate-50 transition-colors group">
+                  <td className="p-6">
                     <div className="text-sm font-black uppercase text-slate-800">
-                      {m.empleado_info?.nombre || <span className="text-red-500 italic font-bold">DESCONOCIDO</span>}
+                      {m.empleado_info?.nombre || <span className="text-red-500 font-bold italic">DESCONOCIDO</span>}
                     </div>
-                    <div className="text-[9px] text-indigo-500 font-bold tracking-widest mt-1 uppercase">RELOJ ID: {m.user_id}</div>
+                    <div className="text-[9px] text-indigo-500 font-bold mt-1 uppercase">ID RELOJ: {m.user_id}</div>
                   </td>
-                  <td className="p-6 border-b border-slate-50">
+                  <td className="p-6">
                     <div className="text-[10px] font-bold text-slate-600 uppercase">{m.empleado_info?.empresas?.nombre || '---'}</div>
                     <div className="text-[9px] text-slate-400 uppercase font-bold mt-0.5">{m.empleado_info?.areas?.nombre || '---'}</div>
                   </td>
-                  <td className="p-6 text-center border-b border-slate-50">
-                    <div className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">{format(new Date(m.timestamp), 'dd / MM / yyyy')}</div>
-                    <span className="bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-bold shadow-sm inline-block tracking-tighter">
-                      {format(new Date(m.timestamp), 'HH:mm:ss')}
+                  <td className="p-6 text-center">
+                    <div className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">
+                      {rawExtract(m.timestamp, 'date').split('-').reverse().join(' / ')}
+                    </div>
+                    <span className="bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-bold inline-block">
+                      {rawExtract(m.timestamp, 'time')}
                     </span>
                   </td>
-                  <td className="p-6 text-right px-8 border-b border-slate-50">
+                  <td className="p-6 text-right px-8">
                     <button 
                       onClick={() => {
                         setEditandoId(m.id);
                         setForm({
                           id: m.id,
                           user_id: m.user_id,
-                          fecha: format(new Date(m.timestamp), 'yyyy-MM-dd'),
-                          hora: format(new Date(m.timestamp), 'HH:mm:ss')
+                          fecha: rawExtract(m.timestamp, 'date'),
+                          hora: rawExtract(m.timestamp, 'time')
                         });
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
-                      className="opacity-0 group-hover:opacity-100 bg-white border border-slate-200 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 hover:shadow-md transition-all"
+                      className="opacity-0 group-hover:opacity-100 bg-white border border-slate-200 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 transition-all"
                     >
                       ✏️
                     </button>
