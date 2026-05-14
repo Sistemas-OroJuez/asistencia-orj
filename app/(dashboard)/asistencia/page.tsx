@@ -2,12 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { format, parseISO } from 'date-fns';
-import { toZonedTime, format as formatTZ } from 'date-fns-tz';
+import { format } from 'date-fns';
 
 export default function MonitorAsistencia() {
   const supabase = createClientComponentClient();
-  const timeZone = 'America/Guayaquil';
   
   const [marcas, setMarcas] = useState<any[]>([]);
   const [empresas, setEmpresas] = useState<any[]>([]);
@@ -29,14 +27,18 @@ export default function MonitorAsistencia() {
   }, [filtroEmpresa, filtroArea, fechaInicio, fechaFin]);
 
   /**
-   * 1. LECTURA: Convertimos lo que viene de la DB (UTC) a Ecuador
+   * FUNCIÓN CLAVE: Extrae el texto literal de la base de datos.
+   * Ignora si la base dice +00, Z o cualquier otra zona.
    */
-  const formatMostrar = (isoString: string, type: 'date' | 'time') => {
-    if (!isoString) return "";
-    // Forzamos la interpretación del string como UTC si no trae zona
-    const date = isoString.includes('Z') || isoString.includes('+') ? parseISO(isoString) : parseISO(isoString + "Z");
-    const zoned = toZonedTime(date, timeZone);
-    return type === 'date' ? formatTZ(zoned, 'yyyy-MM-dd', { timeZone }) : formatTZ(zoned, 'HH:mm:ss', { timeZone });
+  const formatLiteral = (timestampDB: string, type: 'date' | 'time') => {
+    if (!timestampDB) return "";
+    // Ejemplo entrada: "2026-05-14 16:29:00+00"
+    const limpio = timestampDB.replace('T', ' ').split('.')[0]; 
+    const partes = limpio.split(' ');
+    const fecha = partes[0]; // "2026-05-14"
+    const hora = partes[1] ? partes[1].split('+')[0].split('Z')[0] : "00:00:00"; // "16:29:00"
+
+    return type === 'date' ? fecha : hora;
   };
 
   async function fetchMaestros() {
@@ -83,12 +85,9 @@ export default function MonitorAsistencia() {
     }
   }
 
-  /**
-   * 2. ESCRITURA: El truco para evitar las 5 horas es enviar el offset -05
-   */
   const handleUpdate = async () => {
-    // IMPORTANTE: Agregamos -05 al final para decirle a la DB que esta es hora de Ecuador
-    const nuevoTimestamp = `${form.fecha}T${form.hora}-05:00`;
+    // Enviamos el string literal para que Supabase no lo transforme
+    const nuevoTimestamp = `${form.fecha} ${form.hora}`;
     
     try {
       const { error } = await supabase
@@ -112,7 +111,7 @@ export default function MonitorAsistencia() {
       <div className="max-w-7xl mx-auto">
         <header className="mb-8 border-l-4 border-indigo-600 pl-4">
           <h1 className="text-2xl font-black uppercase tracking-tighter italic">🕒 Monitor de Marcas Brutas</h1>
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Zona Horaria: Ecuador (GMT-5)</p>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Modo: Lectura Estricta de Base de Datos</p>
         </header>
 
         {/* FILTROS */}
@@ -152,16 +151,16 @@ export default function MonitorAsistencia() {
           <div className="bg-indigo-600 text-white p-8 rounded-[2.5rem] mb-8 shadow-xl border-4 border-white">
              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
               <div>
-                <label className="block text-[10px] font-black uppercase mb-2">Corregir Fecha</label>
+                <label className="block text-[10px] font-black uppercase mb-2">Fecha</label>
                 <input type="date" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} />
               </div>
               <div>
-                <label className="block text-[10px] font-black uppercase mb-2">Corregir Hora</label>
+                <label className="block text-[10px] font-black uppercase mb-2">Hora</label>
                 <input type="time" step="1" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.hora} onChange={e => setForm({...form, hora: e.target.value})} />
               </div>
               <div className="flex gap-3">
-                <button onClick={handleUpdate} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all font-bold">Guardar</button>
-                <button onClick={() => setEditandoId(null)} className="flex-1 bg-indigo-500 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-400 transition-all font-bold">Cancelar</button>
+                <button onClick={handleUpdate} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all">Guardar</button>
+                <button onClick={() => setEditandoId(null)} className="flex-1 bg-indigo-500 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-400 transition-all">Cancelar</button>
               </div>
             </div>
           </div>
@@ -172,20 +171,20 @@ export default function MonitorAsistencia() {
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase">
-                <th className="p-6">Colaborador / ID</th>
+                <th className="p-6">Colaborador</th>
                 <th className="p-6">Empresa / Área</th>
-                <th className="p-6 text-center">Fecha y Hora (Ecuador)</th>
-                <th className="p-6 text-right">Acciones</th>
+                <th className="p-6 text-center">Fecha y Hora</th>
+                <th className="p-6 text-right px-8">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                <tr><td colSpan={4} className="p-20 text-center animate-pulse text-slate-300 font-black uppercase">Sincronizando...</td></tr>
+                <tr><td colSpan={4} className="p-20 text-center animate-pulse text-slate-300 font-black uppercase">Cargando...</td></tr>
               ) : marcas.map((m) => (
                 <tr key={m.id} className="hover:bg-slate-50/80 transition-colors group">
                   <td className="p-6">
                     <div className="text-sm font-black uppercase text-slate-800">{m.empleado_info?.nombre || 'DESCONOCIDO'}</div>
-                    <div className="text-[9px] text-indigo-500 font-bold tracking-widest mt-1 uppercase font-mono">ID: {m.user_id}</div>
+                    <div className="text-[9px] text-indigo-500 font-bold tracking-widest mt-1 font-mono uppercase">ID: {m.user_id}</div>
                   </td>
                   <td className="p-6">
                     <div className="text-[10px] font-bold text-slate-600 uppercase">{m.empleado_info?.empresas?.nombre || '---'}</div>
@@ -193,10 +192,10 @@ export default function MonitorAsistencia() {
                   </td>
                   <td className="p-6 text-center">
                     <div className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">
-                        {formatMostrar(m.timestamp, 'date').split('-').reverse().join(' / ')}
+                        {formatLiteral(m.timestamp, 'date').split('-').reverse().join(' / ')}
                     </div>
-                    <span className="bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-bold shadow-sm inline-block min-w-[100px]">
-                      {formatMostrar(m.timestamp, 'time')}
+                    <span className="bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-bold shadow-sm inline-block">
+                      {formatLiteral(m.timestamp, 'time')}
                     </span>
                   </td>
                   <td className="p-6 text-right px-8">
@@ -206,12 +205,12 @@ export default function MonitorAsistencia() {
                         setForm({
                           id: m.id,
                           user_id: m.user_id,
-                          fecha: formatMostrar(m.timestamp, 'date'),
-                          hora: formatMostrar(m.timestamp, 'time')
+                          fecha: formatLiteral(m.timestamp, 'date'),
+                          hora: formatLiteral(m.timestamp, 'time')
                         });
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
-                      className="bg-slate-100 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all"
+                      className="bg-slate-100 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 transition-all"
                     >
                       ✏️
                     </button>
