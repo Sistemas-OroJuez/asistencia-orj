@@ -9,29 +9,32 @@ export default function MonitorAsistencia() {
   const supabase = createClientComponentClient();
 
   const [jornadas, setJornadas] = useState<any[]>([]);
-  const [empresas, setEmpresas] = useState<any[]>([]); // Nuevo: Estado para cargar empresas
+  const [empresas, setEmpresas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   // FILTROS
   const [mesSeleccionado, setMesSeleccionado] = useState(format(new Date(), 'yyyy-MM'));
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
-  const [empresaId, setEmpresaId] = useState(''); // Se llenará con la primera empresa encontrada
+  const [empresaId, setEmpresaId] = useState('TODAS'); // Cambiado a 'TODAS' por defecto
 
   useEffect(() => {
     fetchEmpresas();
   }, []);
 
   useEffect(() => {
-    if (empresaId) fetchDatos();
+    fetchDatos();
   }, [mesSeleccionado, fechaInicio, fechaFin, empresaId]);
 
-  // Cargar lista de empresas para el filtro
   async function fetchEmpresas() {
-    const { data } = await supabase.from('empresas').select('id, nombre_comercial');
+    // CORRECCIÓN: La columna es 'nombre', no 'nombre_comercial'
+    const { data, error } = await supabase.from('empresas').select('id, nombre');
+    if (error) {
+      console.error("Error cargando empresas:", error.message);
+      return;
+    }
     if (data) {
       setEmpresas(data);
-      if (data.length > 0) setEmpresaId(data[0].id); // Selecciona la primera por defecto
     }
   }
 
@@ -47,9 +50,14 @@ export default function MonitorAsistencia() {
             area,
             empresa_id
           )
-        `)
-        .eq('empleados.empresa_id', empresaId);
+        `);
 
+      // Filtro de Empresa: Solo aplica si no es 'TODAS'
+      if (empresaId !== 'TODAS') {
+        query = query.eq('empleados.empresa_id', empresaId);
+      }
+
+      // Filtro de Fechas
       if (fechaInicio && fechaFin) {
         query = query.gte('entrada', `${fechaInicio}T00:00:00`)
                      .lte('entrada', `${fechaFin}T23:59:59`);
@@ -65,7 +73,7 @@ export default function MonitorAsistencia() {
       if (error) throw error;
       setJornadas(data || []);
     } catch (error) {
-      console.error("Error:", error);
+      console.error("Error en fetchDatos:", error);
     } finally {
       setLoading(false);
     }
@@ -88,10 +96,8 @@ export default function MonitorAsistencia() {
           </h1>
         </header>
 
-        {/* --- PANEL DE FILTROS ACTUALIZADO --- */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-6 rounded-xl shadow-md mb-8 border-t-4 border-indigo-600">
-          
-          {/* FILTRO DE EMPRESA (NUEVO) */}
+          {/* FILTRO DE EMPRESA CORREGIDO */}
           <div>
             <label className="block text-xs font-black text-gray-400 uppercase mb-1">Seleccionar Empresa</label>
             <select 
@@ -99,8 +105,9 @@ export default function MonitorAsistencia() {
               value={empresaId}
               onChange={(e) => setEmpresaId(e.target.value)}
             >
+              <option value="TODAS">-- TODAS LAS EMPRESAS --</option>
               {empresas.map(emp => (
-                <option key={emp.id} value={emp.id}>{emp.nombre_comercial}</option>
+                <option key={emp.id} value={emp.id}>{emp.nombre}</option>
               ))}
             </select>
           </div>
@@ -114,7 +121,7 @@ export default function MonitorAsistencia() {
           </div>
 
           <div>
-            <label className="block text-xs font-black text-gray-400 uppercase mb-1">Desde / Hasta</label>
+            <label className="block text-xs font-black text-gray-400 uppercase mb-1">Rango Personalizado</label>
             <div className="flex gap-1">
               <input type="date" className="w-1/2 border border-gray-200 rounded-lg p-1 text-xs" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
               <input type="date" className="w-1/2 border border-gray-200 rounded-lg p-1 text-xs" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
@@ -128,9 +135,12 @@ export default function MonitorAsistencia() {
           </div>
         </div>
 
-        {/* LISTADO */}
         {loading ? (
           <p className="text-center py-20 text-gray-400 font-bold uppercase animate-pulse">Cargando datos...</p>
+        ) : Object.keys(agrupadoPorArea).length === 0 ? (
+          <div className="bg-white p-20 rounded-xl text-center border-2 border-dashed border-gray-200">
+            <p className="text-gray-400 font-black uppercase tracking-widest">No hay registros para mostrar</p>
+          </div>
         ) : (
           Object.keys(agrupadoPorArea).sort().map(area => (
             <div key={area} className="mb-10 bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
@@ -156,9 +166,13 @@ export default function MonitorAsistencia() {
                       <td className="px-6 py-4 font-bold text-gray-800 uppercase">{j.empleados?.nombre}</td>
                       <td className="px-6 py-4 text-gray-500">{format(new Date(j.entrada), 'dd/MM/yyyy')}</td>
                       <td className="px-6 py-4 font-black text-blue-600">{format(new Date(j.entrada), 'HH:mm:ss')}</td>
-                      <td className="px-6 py-4 font-black text-orange-600">{j.salida ? format(new Date(j.salida), 'HH:mm:ss') : '--:--:--'}</td>
+                      <td className="px-6 py-4 font-black text-orange-600">
+                        {j.salida ? format(new Date(j.salida), 'HH:mm:ss') : '--:--:--'}
+                      </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${j.estado === 'abierta' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                          j.estado === 'abierta' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                        }`}>
                           {j.estado}
                         </span>
                       </td>
