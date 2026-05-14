@@ -15,8 +15,8 @@ export default function JornadasPage() {
   const [fechaFin, setFechaFin] = useState('');
 
   /**
-   * FUNCIÓN DE EXTRACCIÓN LITERAL
-   * Protegida para TypeScript y evita desfases de zona horaria.
+   * EXTRAER LITERAL: Esta función es la que garantiza que 
+   * 16:29:00 en la base sea 16:29:00 en la pantalla.
    */
   const extraerLiteral = (timestampDB: string | null, tipo: 'fecha' | 'hora' | 'objeto'): string | Date | null => {
     if (!timestampDB) {
@@ -24,29 +24,23 @@ export default function JornadasPage() {
       return "";
     }
     
-    // Normalizamos el formato del string que viene de la DB
-    const limpio = timestampDB.replace('T', ' ').split('.')[0];
-    const partes = limpio.split(' ');
-    const fecha = partes[0];
-    const hora = partes[1] ? partes[1].split('+')[0].split('Z')[0] : "00:00:00";
+    // Separamos la fecha de la hora usando el espacio o la T
+    const partesT = timestampDB.split('T');
+    const fechaParte = partesT[0];
+    const horaParteCompleta = partesT[1] || timestampDB.split(' ')[1] || "";
+    
+    // Limpiamos la hora de cualquier rastro de +00, Z o milisegundos
+    const horaLimpia = horaParteCompleta.split('.')[0].split('+')[0].split('Z')[0];
 
-    if (tipo === 'fecha') return fecha;
-    if (tipo === 'hora') return hora;
-    return new Date(`${fecha}T${hora}`);
+    if (tipo === 'fecha') return fechaParte;
+    if (tipo === 'hora') return horaLimpia || "00:00:00";
+    
+    // Para el objeto Date de cálculo, usamos el formato ISO local sin zona
+    return new Date(`${fechaParte}T${horaLimpia}`);
   };
 
   useEffect(() => {
     fetchJornadas();
-    const channel = supabase
-      .channel('jornadas_live')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'jornadas_procesadas' 
-      }, () => fetchJornadas())
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
   }, [mesSeleccionado, fechaInicio, fechaFin]);
 
   const calcularRecargoNocturno = (entrada: Date, salida: Date) => {
@@ -92,6 +86,7 @@ export default function JornadasPage() {
       if (error) throw error;
 
       const procesadas = (data || []).map(j => {
+        // OBTENEMOS LAS FECHAS COMO OBJETOS NEUTROS
         const ent = extraerLiteral(j.entrada, 'objeto') as Date;
         const sal = j.salida ? extraerLiteral(j.salida, 'objeto') as Date : ent;
         
@@ -110,6 +105,7 @@ export default function JornadasPage() {
         } else if (horasTotales > 8) {
           const extras = horasTotales - 8;
           const horaSalida = sal.getHours();
+          // Lógica de extras al 100% si sale después de medianoche en día laboral
           if (horaSalida >= 0 && horaSalida <= 6 && sal.getDate() !== ent.getDate()) {
             h100 = Math.min(extras, horaSalida);
             h50 = extras - h100;
@@ -148,28 +144,20 @@ export default function JornadasPage() {
       <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-3xl font-black tracking-tighter uppercase italic">⏱️ Control de Jornadas</h1>
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Lectura Directa de Base de Datos (Ecuador)</p>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Sincronizado con Reloj Biométrico</p>
         </div>
-        <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-600 transition-all shadow-sm">PDF / IMPRIMIR</button>
+        <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-sm">PDF / IMPRIMIR</button>
       </header>
 
+      {/* FILTROS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 mb-8 print:hidden">
-        <div>
-          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2">Mes</label>
-          <input type="month" value={mesSeleccionado} onChange={(e) => setMesSeleccionado(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
-        </div>
-        <div>
-          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2">Desde</label>
-          <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
-        </div>
-        <div>
-          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2">Hasta</label>
-          <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
-        </div>
+        <input type="month" value={mesSeleccionado} onChange={(e) => setMesSeleccionado(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
+        <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
+        <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
       </div>
 
       {loading ? (
-        <div className="text-center py-20 text-slate-300 font-black uppercase text-xs animate-pulse">Sincronizando registros...</div>
+        <div className="text-center py-20 text-slate-300 font-black uppercase text-xs">Cargando...</div>
       ) : (
         <div className="space-y-12">
           {Object.keys(agrupadoPorArea).map((area) => (
@@ -182,14 +170,17 @@ export default function JornadasPage() {
                       <th className="p-6">Colaborador</th>
                       <th className="p-6 text-center">Marcaciones</th>
                       <th className="p-6 text-center">Horas Totales</th>
-                      <th className="p-6 text-center text-indigo-600">Rec. 25%</th>
-                      <th className="p-6 text-center text-orange-600">Supl. 50%</th>
-                      <th className="p-6 text-center text-red-600">Extr. 100%</th>
+                      <th className="p-6 text-center">Rec. 25%</th>
+                      <th className="p-6 text-center">Supl. 50%</th>
+                      <th className="p-6 text-center">Extr. 100%</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {agrupadoPorArea[area].map((j: any) => {
-                      const fechaStr = extraerLiteral(j.entrada, 'fecha') as string;
+                      const fEntra = extraerLiteral(j.entrada, 'fecha') as string;
+                      const hEntra = extraerLiteral(j.entrada, 'hora') as string;
+                      const hSale = j.salida ? (extraerLiteral(j.salida, 'hora') as string) : '...';
+
                       return (
                         <tr key={j.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="p-6">
@@ -199,21 +190,20 @@ export default function JornadasPage() {
                           </td>
                           <td className="p-6 text-center">
                             <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">
-                               {fechaStr ? fechaStr.split('-').reverse().join(' / ') : '---'}
+                               {fEntra.split('-').reverse().join(' / ')}
                             </div>
                             <div className="text-[10px] font-black text-slate-700 bg-slate-100 rounded-xl py-2 px-3 inline-block font-mono">
-                              {extraerLiteral(j.entrada, 'hora') as string} - {j.salida ? (extraerLiteral(j.salida, 'hora') as string) : '---'}
+                              {hEntra} - {hSale}
                             </div>
                           </td>
                           <td className="p-6 text-center font-black text-slate-900 text-xs">
-                            {j.h_totales?.toFixed(2)}h
+                            {j.h_totales.toFixed(2)}h
                           </td>
                           <td className="p-6 text-center font-black text-indigo-600 text-xs">
                             {j.h_25 > 0 ? `${j.h_25.toFixed(2)}h` : '-'}
                           </td>
                           <td className={`p-6 text-center font-black text-xs ${j.excedeLimite ? 'bg-red-50 text-red-600' : 'text-orange-600'}`}>
                             {j.h_50 > 0 ? `${j.h_50.toFixed(2)}h` : '-'}
-                            {j.excedeLimite && <div className="text-[7px] uppercase font-bold">Límite Superado</div>}
                           </td>
                           <td className="p-6 text-center font-black text-red-600 text-xs">
                             {j.h_100 > 0 ? `${j.h_100.toFixed(2)}h` : '-'}
