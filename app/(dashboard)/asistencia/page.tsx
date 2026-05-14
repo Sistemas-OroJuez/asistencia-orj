@@ -2,19 +2,22 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfMonth, endOfMonth, differenceInMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
 
-export default function MonitorAsistencia() {
+export default function ControlJornadas() {
   const supabase = createClientComponentClient();
   const [jornadas, setJornadas] = useState<any[]>([]);
   const [empresas, setEmpresas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
+  // Filtros
+  const [filtroNombre, setFiltroNombre] = useState('');
   const [mesSeleccionado, setMesSeleccionado] = useState(format(new Date(), 'yyyy-MM'));
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
   const [empresaId, setEmpresaId] = useState('TODAS');
+  const [estadoFiltro, setEstadoFiltro] = useState('TODOS');
 
   useEffect(() => {
     fetchEmpresas();
@@ -22,7 +25,7 @@ export default function MonitorAsistencia() {
 
   useEffect(() => {
     fetchDatos();
-  }, [mesSeleccionado, fechaInicio, fechaFin, empresaId]);
+  }, [mesSeleccionado, fechaInicio, fechaFin, empresaId, estadoFiltro]);
 
   async function fetchEmpresas() {
     const { data } = await supabase.from('empresas').select('id, nombre');
@@ -32,15 +35,18 @@ export default function MonitorAsistencia() {
   async function fetchDatos() {
     setLoading(true);
     try {
-      // AJUSTE: Mantenemos el join simple (sin !inner) y usamos area_id que es la columna real
+      // Query con Triple Join para traer nombres descriptivos
       let query = supabase
         .from('jornadas_procesadas')
         .select(`
           *,
-          empleados (
+          empleados!inner (
             nombre,
-            area_id,
-            empresa_id
+            cedula,
+            empresa_id,
+            empresas (nombre),
+            sitios (nombre),
+            areas (nombre)
           )
         `);
 
@@ -48,20 +54,29 @@ export default function MonitorAsistencia() {
         query = query.eq('empleados.empresa_id', empresaId);
       }
 
-      // AJUSTE: Agregamos milisegundos y Z (UTC) para asegurar que coincida con el formato de la DB
+      if (estadoFiltro !== 'TODOS') {
+        query = query.eq('estado', estadoFiltro.toLowerCase());
+      }
+
+      // Lógica de fechas
       if (fechaInicio && fechaFin) {
-        query = query.gte('entrada', `${fechaInicio}T00:00:00.000Z`)
-                     .lte('entrada', `${fechaFin}T23:59:59.999Z`);
+        query = query.gte('entrada', `${fechaInicio}T00:00:00`).lte('entrada', `${fechaFin}T23:59:59`);
       } else {
         const dateRef = new Date(mesSeleccionado + "-01T12:00:00");
         const inicio = format(startOfMonth(dateRef), 'yyyy-MM-dd');
         const fin = format(endOfMonth(dateRef), 'yyyy-MM-dd');
-        query = query.gte('entrada', `${inicio}T00:00:00.000Z`).lte('entrada', `${fin}T23:59:59.999Z`);
+        query = query.gte('entrada', `${inicio}T00:00:00`).lte('entrada', `${fin}T23:59:59`);
       }
 
       const { data, error } = await query.order('entrada', { ascending: false });
       if (error) throw error;
-      setJornadas(data || []);
+
+      // Filtro local por nombre para rapidez
+      const filtrados = data.filter(j => 
+        j.empleados.nombre.toLowerCase().includes(filtroNombre.toLowerCase())
+      );
+
+      setJornadas(filtrados || []);
     } catch (error) {
       console.error("Error:", error);
     } finally {
@@ -69,90 +84,129 @@ export default function MonitorAsistencia() {
     }
   }
 
-  // Agrupación robusta
-  const agrupadoPorArea = jornadas.reduce((acc: any, item: any) => {
-    // AJUSTE: Cambiado 'area' por 'area_id' según la estructura confirmada
-    const area = item.empleados?.area_id || 'GENERAL / POR DEFINIR';
-    if (!acc[area]) acc[area] = { registros: [], contador: 0 };
-    acc[area].registros.push(item);
-    acc[area].contador += 1;
-    return acc;
-  }, {});
+  // Cálculo de horas trabajadas
+  const calcularHoras = (entrada: string, salida: string | null) => {
+    if (!salida) return "--";
+    const min = differenceInMinutes(new Date(salida), new Date(entrada));
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return `${h}h ${m}m`;
+  };
+
+  const enviarWhatsApp = (j: any) => {
+    const fecha = format(new Date(j.entrada), 'dd/MM/yyyy');
+    const horas = calcularHoras(j.entrada, j.salida);
+    const mensaje = `Hola ${j.empleados.nombre}, tu jornada del ${fecha} registra: Entrada: ${format(new Date(j.entrada), 'HH:mm')}, Salida: ${j.salida ? format(new Date(j.salida), 'HH:mm') : 'Pendiente'}. Total: ${horas}.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(mensaje)}`, '_blank');
+  };
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen font-sans">
+    <div className="p-4 md:p-8 bg-slate-50 min-h-screen text-slate-900">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-2xl font-black text-slate-800 mb-6 uppercase tracking-tight">Monitor de Asistencia</h1>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-200 mb-8">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Empresa</label>
-            <select className="w-full border-slate-200 rounded-lg text-sm" value={empresaId} onChange={(e) => setEmpresaId(e.target.value)}>
-              <option value="TODAS">-- MOSTRAR TODO --</option>
+            <h1 className="text-2xl font-black uppercase tracking-tight">📊 Control de Jornadas</h1>
+            <p className="text-slate-500 text-sm">Reporte procesado de horas trabajadas y status de turno.</p>
+          </div>
+          <div className="flex gap-2">
+            <button className="bg-green-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-green-700 transition">Excel</button>
+            <button className="bg-red-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-red-700 transition">PDF</button>
+          </div>
+        </header>
+
+        {/* Panel de Filtros Avanzados */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 mb-8 grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="md:col-span-2">
+            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">Buscar Empleado</label>
+            <input 
+              type="text" 
+              placeholder="Nombre o Cédula..."
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+              value={filtroNombre}
+              onChange={(e) => setFiltroNombre(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">Empresa</label>
+            <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" value={empresaId} onChange={(e) => setEmpresaId(e.target.value)}>
+              <option value="TODAS">TODAS</option>
               {empresas.map(emp => <option key={emp.id} value={emp.id}>{emp.nombre}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Mes</label>
-            <input type="month" className="w-full border-slate-200 rounded-lg text-sm" value={mesSeleccionado} onChange={(e) => setMesSeleccionado(e.target.value)} />
+            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">Estado</label>
+            <select className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)}>
+              <option value="TODOS">TODOS</option>
+              <option value="ABIERTA">ABIERTA</option>
+              <option value="CERRADA">CERRADA</option>
+            </select>
           </div>
-          <div className="md:col-span-1">
-             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Rango Libre</label>
-             <div className="flex gap-2">
-                <input type="date" className="w-1/2 border-slate-200 rounded-lg text-xs" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
-                <input type="date" className="w-1/2 border-slate-200 rounded-lg text-xs" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
-             </div>
-          </div>
-          <div className="flex items-end">
-            <button onClick={fetchDatos} className="w-full bg-slate-900 text-white text-xs font-bold py-2.5 rounded-lg hover:bg-slate-800 transition">REFRESCAR</button>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase mb-1 ml-1">Mes</label>
+            <input type="month" className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold" value={mesSeleccionado} onChange={(e) => setMesSeleccionado(e.target.value)} />
           </div>
         </div>
 
-        {loading ? (
-          <div className="text-center py-20 animate-pulse text-slate-400 font-bold uppercase">Sincronizando...</div>
-        ) : Object.keys(agrupadoPorArea).length === 0 ? (
-          <div className="bg-white p-20 rounded-2xl text-center border border-dashed border-slate-200">
-            <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">No hay marcas registradas</p>
-          </div>
-        ) : (
-          Object.keys(agrupadoPorArea).map(area => (
-            <div key={area} className="mb-8 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="bg-slate-50 px-6 py-3 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="font-black text-slate-700 text-xs uppercase tracking-widest">ÁREA: {area}</h3>
-                <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold">{agrupadoPorArea[area].contador} MARCAS</span>
-              </div>
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-[10px] text-slate-400 uppercase border-b border-slate-50">
-                    <th className="p-4">Empleado</th>
-                    <th className="p-4">Fecha</th>
-                    <th className="p-4">Entrada</th>
-                    <th className="p-4">Salida</th>
-                    <th className="p-4 text-center">Estado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {agrupadoPorArea[area].registros.map((j: any) => (
-                    <tr key={j.id} className="text-sm hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-bold text-slate-700">
-                        {/* AJUSTE: Si no hay nombre por el join, mostramos el ID del reloj para no ver celdas vacías */}
-                        {j.empleados?.nombre || `ID Reloj: ${j.user_id_reloj}`}
-                      </td>
-                      <td className="p-4 text-slate-500">{format(new Date(j.entrada), 'dd MMM yyyy', {locale: es})}</td>
-                      <td className="p-4 font-mono font-bold text-blue-600">{format(new Date(j.entrada), 'HH:mm:ss')}</td>
-                      <td className="p-4 font-mono font-bold text-orange-600">{j.salida ? format(new Date(j.salida), 'HH:mm:ss') : '--:--:--'}</td>
-                      <td className="p-4 text-center">
-                        <span className={`text-[10px] font-black px-2 py-1 rounded uppercase ${j.estado === 'abierta' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-                          {j.estado}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))
-        )}
+        {/* Tabla de Resultados */}
+        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Colaborador</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Ubicación</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Entrada</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase">Salida</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase text-center">Horas</th>
+                <th className="p-4 text-[10px] font-black text-slate-400 uppercase text-center">Status</th>
+                <th className="p-4 text-right"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr><td colSpan={7} className="p-10 text-center animate-pulse font-black text-slate-300">CARGANDO JORNADAS...</td></tr>
+              ) : jornadas.map((j) => (
+                <tr key={j.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="p-4">
+                    <div className="text-xs font-black uppercase">{j.empleados?.nombre}</div>
+                    <div className="text-[9px] text-indigo-500 font-bold">CI: {j.empleados?.cedula}</div>
+                  </td>
+                  <td className="p-4">
+                    <div className="text-[9px] font-bold text-slate-500 uppercase">{j.empleados?.empresas?.nombre}</div>
+                    <div className="text-[8px] text-slate-400 uppercase">{j.empleados?.sitios?.nombre} / {j.empleados?.areas?.nombre}</div>
+                  </td>
+                  <td className="p-4">
+                    <div className="text-[10px] font-bold text-slate-600">{format(new Date(j.entrada), 'dd/MM/yy')}</div>
+                    <div className="text-xs font-black text-blue-600">{format(new Date(j.entrada), 'HH:mm:ss')}</div>
+                  </td>
+                  <td className="p-4 text-xs font-black text-orange-600">
+                    {j.salida ? format(new Date(j.salida), 'HH:mm:ss') : '--:--:--'}
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className="bg-slate-100 px-2 py-1 rounded-lg text-[10px] font-black">
+                      {calcularHoras(j.entrada, j.salida)}
+                    </span>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className={`text-[9px] font-black px-3 py-1 rounded-full uppercase ${
+                      j.estado === 'abierta' ? 'bg-green-100 text-green-700 ring-1 ring-green-200' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {j.estado}
+                    </span>
+                  </td>
+                  <td className="p-4 text-right">
+                    <button 
+                      onClick={() => enviarWhatsApp(j)}
+                      className="bg-green-50 text-green-600 p-2 rounded-xl hover:bg-green-600 hover:text-white transition-all"
+                      title="Enviar reporte por WhatsApp"
+                    >
+                      📱
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
