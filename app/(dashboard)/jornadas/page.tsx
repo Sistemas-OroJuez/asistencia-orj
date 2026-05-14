@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { format, startOfMonth, endOfMonth, getDay, differenceInMinutes, parseISO } from 'date-fns';
+import { format, startOfMonth, endOfMonth, getDay, differenceInMinutes } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 export default function JornadasPage() {
@@ -15,13 +15,16 @@ export default function JornadasPage() {
   const [fechaFin, setFechaFin] = useState('');
 
   /**
-   * FUNCIÓN CLAVE: Extrae la hora literal del string de la DB.
-   * Evita que el navegador reste 5 horas automáticamente.
+   * FUNCIÓN DE EXTRACCIÓN LITERAL
+   * Protegida para TypeScript y evita desfases de zona horaria.
    */
-  const extraerLiteral = (timestampDB: string, tipo: 'fecha' | 'hora' | 'objeto') => {
-    if (!timestampDB) return tipo === 'objeto' ? null : '---';
+  const extraerLiteral = (timestampDB: string | null, tipo: 'fecha' | 'hora' | 'objeto'): string | Date | null => {
+    if (!timestampDB) {
+      if (tipo === 'objeto') return null;
+      return "";
+    }
     
-    // Limpieza de string: "2026-05-14 16:29:00+00" -> ["2026-05-14", "16:29:00"]
+    // Normalizamos el formato del string que viene de la DB
     const limpio = timestampDB.replace('T', ' ').split('.')[0];
     const partes = limpio.split(' ');
     const fecha = partes[0];
@@ -29,8 +32,6 @@ export default function JornadasPage() {
 
     if (tipo === 'fecha') return fecha;
     if (tipo === 'hora') return hora;
-    
-    // Para cálculos, creamos un objeto Date "plano" (sin zona horaria)
     return new Date(`${fecha}T${hora}`);
   };
 
@@ -48,7 +49,6 @@ export default function JornadasPage() {
     return () => { supabase.removeChannel(channel); };
   }, [mesSeleccionado, fechaInicio, fechaFin]);
 
-  // Lógica Art. 49: Recargo del 25% entre las 19:00 y las 06:00
   const calcularRecargoNocturno = (entrada: Date, salida: Date) => {
     let minutosNocturnos = 0;
     let actual = new Date(entrada);
@@ -65,12 +65,12 @@ export default function JornadasPage() {
     try {
       let start, end;
       if (fechaInicio && fechaFin) {
-        start = `${fechaInicio}T00:00:00Z`;
-        end = `${fechaFin}T23:59:59Z`;
+        start = `${fechaInicio} 00:00:00`;
+        end = `${fechaFin} 23:59:59`;
       } else {
         const dateRef = new Date(mesSeleccionado + "-01T12:00:00");
-        start = format(startOfMonth(dateRef), "yyyy-MM-dd'T'00:00:00'Z'");
-        end = format(endOfMonth(dateRef), "yyyy-MM-dd'T'23:59:59'Z'");
+        start = format(startOfMonth(dateRef), "yyyy-MM-dd 00:00:00");
+        end = format(endOfMonth(dateRef), "yyyy-MM-dd 23:59:59");
       }
 
       const { data, error } = await supabase
@@ -92,16 +92,16 @@ export default function JornadasPage() {
       if (error) throw error;
 
       const procesadas = (data || []).map(j => {
-        // Usamos la extracción literal para los cálculos
         const ent = extraerLiteral(j.entrada, 'objeto') as Date;
         const sal = j.salida ? extraerLiteral(j.salida, 'objeto') as Date : ent;
         
+        if (!ent || !sal) return j;
+
         const horasTotales = differenceInMinutes(sal, ent) / 60;
         const diaSemana = getDay(ent); 
         const esFinDeSemana = diaSemana === 0 || diaSemana === 6;
 
         const h25 = calcularRecargoNocturno(ent, sal);
-
         let h50 = 0;
         let h100 = 0;
 
@@ -153,7 +153,6 @@ export default function JornadasPage() {
         <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-600 transition-all shadow-sm">PDF / IMPRIMIR</button>
       </header>
 
-      {/* FILTROS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 mb-8 print:hidden">
         <div>
           <label className="block text-[9px] font-black text-slate-400 uppercase mb-2">Mes</label>
@@ -181,7 +180,7 @@ export default function JornadasPage() {
                   <thead>
                     <tr className="text-[9px] font-black text-slate-400 uppercase bg-slate-50/50">
                       <th className="p-6">Colaborador</th>
-                      <th className="p-6 text-center">Marcaciones (Base de Datos)</th>
+                      <th className="p-6 text-center">Marcaciones</th>
                       <th className="p-6 text-center">Horas Totales</th>
                       <th className="p-6 text-center text-indigo-600">Rec. 25%</th>
                       <th className="p-6 text-center text-orange-600">Supl. 50%</th>
@@ -189,37 +188,39 @@ export default function JornadasPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {agrupadoPorArea[area].map((j: any) => (
-                      <tr key={j.id} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="p-6">
-                          <div className="text-[9px] font-black text-indigo-500 uppercase font-mono">ID: {j.empleados?.user_id_reloj}</div>
-                          <div className="font-black text-slate-800 uppercase text-xs">{j.empleados?.nombre}</div>
-                          <div className="text-[8px] text-slate-400 font-bold uppercase">{j.empleados?.sitio?.nombre}</div>
-                        </td>
-                        <td className="p-6 text-center">
-                          <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">
-                             {/* Formateo manual del nombre del día para evitar desfases */}
-                             {extraerLiteral(j.entrada, 'fecha').split('-').reverse().join(' / ')}
-                          </div>
-                          <div className="text-[10px] font-black text-slate-700 bg-slate-100 rounded-xl py-2 px-3 inline-block font-mono">
-                            {extraerLiteral(j.entrada, 'hora')} - {j.salida ? extraerLiteral(j.salida, 'hora') : '---'}
-                          </div>
-                        </td>
-                        <td className="p-6 text-center font-black text-slate-900 text-xs">
-                          {j.h_totales.toFixed(2)}h
-                        </td>
-                        <td className="p-6 text-center font-black text-indigo-600 text-xs">
-                          {j.h_25 > 0 ? `${j.h_25.toFixed(2)}h` : '-'}
-                        </td>
-                        <td className={`p-6 text-center font-black text-xs ${j.excedeLimite ? 'bg-red-50 text-red-600' : 'text-orange-600'}`}>
-                          {j.h_50 > 0 ? `${j.h_50.toFixed(2)}h` : '-'}
-                          {j.excedeLimite && <div className="text-[7px] uppercase font-bold">Límite Superado</div>}
-                        </td>
-                        <td className="p-6 text-center font-black text-red-600 text-xs">
-                          {j.h_100 > 0 ? `${j.h_100.toFixed(2)}h` : '-'}
-                        </td>
-                      </tr>
-                    ))}
+                    {agrupadoPorArea[area].map((j: any) => {
+                      const fechaStr = extraerLiteral(j.entrada, 'fecha') as string;
+                      return (
+                        <tr key={j.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="p-6">
+                            <div className="text-[9px] font-black text-indigo-500 uppercase font-mono">ID: {j.empleados?.user_id_reloj}</div>
+                            <div className="font-black text-slate-800 uppercase text-xs">{j.empleados?.nombre}</div>
+                            <div className="text-[8px] text-slate-400 font-bold uppercase">{j.empleados?.sitio?.nombre}</div>
+                          </td>
+                          <td className="p-6 text-center">
+                            <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">
+                               {fechaStr ? fechaStr.split('-').reverse().join(' / ') : '---'}
+                            </div>
+                            <div className="text-[10px] font-black text-slate-700 bg-slate-100 rounded-xl py-2 px-3 inline-block font-mono">
+                              {extraerLiteral(j.entrada, 'hora') as string} - {j.salida ? (extraerLiteral(j.salida, 'hora') as string) : '---'}
+                            </div>
+                          </td>
+                          <td className="p-6 text-center font-black text-slate-900 text-xs">
+                            {j.h_totales?.toFixed(2)}h
+                          </td>
+                          <td className="p-6 text-center font-black text-indigo-600 text-xs">
+                            {j.h_25 > 0 ? `${j.h_25.toFixed(2)}h` : '-'}
+                          </td>
+                          <td className={`p-6 text-center font-black text-xs ${j.excedeLimite ? 'bg-red-50 text-red-600' : 'text-orange-600'}`}>
+                            {j.h_50 > 0 ? `${j.h_50.toFixed(2)}h` : '-'}
+                            {j.excedeLimite && <div className="text-[7px] uppercase font-bold">Límite Superado</div>}
+                          </td>
+                          <td className="p-6 text-center font-black text-red-600 text-xs">
+                            {j.h_100 > 0 ? `${j.h_100.toFixed(2)}h` : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
