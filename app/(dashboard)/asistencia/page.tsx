@@ -39,11 +39,12 @@ export default function MonitorAsistencia() {
   async function fetchMarcas() {
     setLoading(true);
     try {
+      // Usamos un join normal (sin !inner) para evitar que la tabla quede en blanco si el ID no existe en empleados
       let query = supabase
         .from('asistencia')
         .select(`
           id, user_id, timestamp, status, punch,
-          empleados!inner (
+          empleados (
             nombre,
             empresa_id,
             area_id,
@@ -53,20 +54,28 @@ export default function MonitorAsistencia() {
           )
         `);
 
+      // Filtro de Empresa y Área (solo si el empleado está vinculado)
       if (filtroEmpresa !== 'TODAS') query = query.eq('empleados.empresa_id', filtroEmpresa);
       if (filtroArea !== 'TODAS') query = query.eq('empleados.area_id', filtroArea);
       
+      // AJUSTE DE FECHA: Buscamos sin el sufijo T00:00:00+00 para que PostgreSQL 
+      // lo maneje según la zona horaria local de la base de datos (Ecuador).
       query = query
-        .gte('timestamp', `${fechaInicio}T00:00:00+00`)
-        .lte('timestamp', `${fechaFin}T23:59:59+00`);
+        .gte('timestamp', `${fechaInicio} 00:00:00`)
+        .lte('timestamp', `${fechaFin} 23:59:59`);
 
       const { data, error } = await query.order('timestamp', { ascending: false });
+      
       if (error) throw error;
 
-      // Solución al error de tipos: Normalizamos empleados como objeto único
+      // Debug para consola (puedes borrarlo después)
+      console.log("Marcas recuperadas:", data?.length);
+
       const filtrados = (data as any[]).filter(m => {
         const emp = Array.isArray(m.empleados) ? m.empleados[0] : m.empleados;
-        return emp?.nombre?.toLowerCase().includes(filtroNombre.toLowerCase());
+        // Si el empleado no existe en la tabla empleados, mostramos "ID Desconocido" y permitimos que pase el filtro
+        const nombreEmp = emp?.nombre || `ID: ${m.user_id}`;
+        return nombreEmp.toLowerCase().includes(filtroNombre.toLowerCase());
       });
 
       setMarcas(filtrados);
@@ -78,7 +87,9 @@ export default function MonitorAsistencia() {
   }
 
   const handleAction = async (esClon: boolean) => {
+    // Mantener el formato con zona horaria para la inserción
     const nuevoTimestamp = `${form.fecha}T${form.hora}:00+00`;
+    
     const payload = { 
         user_id: form.user_id, 
         timestamp: nuevoTimestamp, 
@@ -90,7 +101,7 @@ export default function MonitorAsistencia() {
       if (esClon) {
         const { error } = await supabase.from('asistencia').insert([payload]);
         if (error) throw error;
-        alert("Registro CLONADO. El sistema recalculará la jornada.");
+        alert("Registro CLONADO con éxito.");
       } else {
         const { error } = await supabase.from('asistencia').update(payload).eq('id', form.id);
         if (error) throw error;
@@ -118,21 +129,21 @@ export default function MonitorAsistencia() {
             <input 
               type="text" 
               placeholder="Nombre..." 
-              className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none"
+              className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
               value={filtroNombre}
               onChange={(e) => setFiltroNombre(e.target.value)}
             />
           </div>
           <div>
             <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Empresa</label>
-            <select className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none" value={filtroEmpresa} onChange={e => setFiltroEmpresa(e.target.value)}>
+            <select className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none cursor-pointer" value={filtroEmpresa} onChange={e => setFiltroEmpresa(e.target.value)}>
               <option value="TODAS">TODAS LAS EMPRESAS</option>
               {empresas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-[10px] font-black text-slate-400 uppercase mb-2 ml-1">Área</label>
-            <select className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none" value={filtroArea} onChange={e => setFiltroArea(e.target.value)}>
+            <select className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none cursor-pointer" value={filtroArea} onChange={e => setFiltroArea(e.target.value)}>
               <option value="TODAS">TODAS LAS ÁREAS</option>
               {areas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
@@ -145,7 +156,7 @@ export default function MonitorAsistencia() {
             </div>
           </div>
           <div className="flex items-end">
-             <button onClick={fetchMarcas} className="w-full bg-indigo-600 text-white p-3.5 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-700 transition-all">Filtrar</button>
+             <button onClick={fetchMarcas} className="w-full bg-indigo-600 text-white p-3.5 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100">Filtrar</button>
           </div>
         </div>
 
@@ -153,56 +164,62 @@ export default function MonitorAsistencia() {
         {editandoId && (
           <div className="bg-slate-900 text-white p-8 rounded-[2.5rem] mb-8 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-6">
-               <h3 className="text-xs font-black uppercase tracking-widest text-indigo-400">Corrección de Marca</h3>
+               <h3 className="text-xs font-black uppercase tracking-widest text-indigo-400">Panel de Edición</h3>
                <button onClick={() => setEditandoId(null)} className="text-slate-500 hover:text-white transition-colors">✕</button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Fecha</label>
-                <input type="date" className="w-full p-4 bg-slate-800 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} />
+                <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Fecha Corregida</label>
+                <input type="date" className="w-full p-4 bg-slate-800 border-none rounded-2xl text-sm font-bold text-white outline-none focus:ring-1 focus:ring-indigo-500" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} />
               </div>
               <div>
                 <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Hora (HH:MM:SS)</label>
-                <input type="time" step="1" className="w-full p-4 bg-slate-800 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.hora} onChange={e => setForm({...form, hora: e.target.value})} />
+                <input type="time" step="1" className="w-full p-4 bg-slate-800 border-none rounded-2xl text-sm font-bold text-white outline-none focus:ring-1 focus:ring-indigo-500" value={form.hora} onChange={e => setForm({...form, hora: e.target.value})} />
               </div>
               <div className="flex gap-3">
                 <button onClick={() => handleAction(false)} className="flex-1 bg-white text-slate-900 p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-200 transition-all">Actualizar</button>
-                <button onClick={() => handleAction(true)} className="flex-1 bg-emerald-500 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-emerald-600 transition-all">Clonar</button>
+                <button onClick={() => handleAction(true)} className="flex-1 bg-emerald-500 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-900/20">Clonar</button>
               </div>
-              <div className="text-[9px] text-slate-500 italic">Clonar crea un nuevo registro sin borrar el original.</div>
+              <div className="text-[9px] text-slate-500 italic leading-snug">Use "Clonar" para crear una marca de salida si el empleado la olvidó.</div>
             </div>
           </div>
         )}
 
-        {/* TABLA */}
+        {/* TABLA DE RESULTADOS */}
         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50/50 border-b border-slate-100">
-                <th className="p-6 text-[10px] font-black text-slate-400 uppercase">Empleado</th>
-                <th className="p-6 text-[10px] font-black text-slate-400 uppercase">Ubicación</th>
-                <th className="p-6 text-[10px] font-black text-slate-400 uppercase text-center">Marcación</th>
+                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Empleado / ID Reloj</th>
+                <th className="p-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">Empresa / Área</th>
+                <th className="p-6 text-[10px] font-black text-slate-400 uppercase text-center tracking-widest">Fecha y Hora</th>
                 <th className="p-6"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                <tr><td colSpan={4} className="p-24 text-center animate-pulse text-slate-300 font-black uppercase text-2xl tracking-tighter">Cargando Reloj...</td></tr>
+                <tr><td colSpan={4} className="p-24 text-center animate-pulse text-slate-300 font-black uppercase text-2xl tracking-tighter">Sincronizando Reloj...</td></tr>
+              ) : marcas.length === 0 ? (
+                <tr><td colSpan={4} className="p-24 text-center text-slate-400 font-bold uppercase text-xs">No hay marcaciones para este periodo o filtros</td></tr>
               ) : marcas.map((m) => {
                 const emp = Array.isArray(m.empleados) ? m.empleados[0] : m.empleados;
                 return (
                   <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-6">
-                      <div className="text-sm font-black uppercase text-slate-800">{emp?.nombre || 'S/N'}</div>
-                      <div className="text-[9px] text-indigo-500 font-bold tracking-widest mt-1">ID: {m.user_id}</div>
+                      <div className="text-sm font-black uppercase text-slate-800">
+                        {emp?.nombre || <span className="text-orange-500">ID DESCONOCIDO</span>}
+                      </div>
+                      <div className="text-[9px] text-indigo-500 font-bold tracking-widest mt-1 uppercase">Reloj: {m.user_id}</div>
                     </td>
                     <td className="p-6">
-                      <div className="text-[10px] font-bold text-slate-600 uppercase">{emp?.empresas?.nombre}</div>
-                      <div className="text-[9px] text-slate-400 uppercase font-bold mt-0.5">{emp?.areas?.nombre}</div>
+                      <div className="text-[10px] font-bold text-slate-600 uppercase">{emp?.empresas?.nombre || '---'}</div>
+                      <div className="text-[9px] text-slate-400 uppercase font-bold mt-0.5">{emp?.areas?.nombre || 'Sin Área Asignada'}</div>
                     </td>
                     <td className="p-6 text-center">
-                      <div className="text-[10px] font-black text-slate-400 mb-1.5">{format(new Date(m.timestamp), 'dd/MM/yyyy')}</div>
-                      <span className="bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-bold">{format(new Date(m.timestamp), 'HH:mm:ss')}</span>
+                      <div className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">{format(new Date(m.timestamp), 'dd MMM yyyy')}</div>
+                      <span className="bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-bold shadow-sm inline-block">
+                        {format(new Date(m.timestamp), 'HH:mm:ss')}
+                      </span>
                     </td>
                     <td className="p-6 text-right">
                       <button 
@@ -216,7 +233,7 @@ export default function MonitorAsistencia() {
                           });
                           window.scrollTo({ top: 0, behavior: 'smooth' });
                         }}
-                        className="bg-white border border-slate-200 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 hover:shadow-sm"
+                        className="bg-white border border-slate-200 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 hover:border-indigo-200 hover:shadow-sm transition-all"
                       >
                         ✏️
                       </button>
