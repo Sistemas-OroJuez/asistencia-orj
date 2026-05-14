@@ -2,19 +2,37 @@
 
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { format, startOfMonth, endOfMonth, getDay, differenceInMinutes } from 'date-fns';
+import { format, startOfMonth, endOfMonth, getDay, differenceInMinutes, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { toZonedTime } from 'date-fns-tz';
 
 export default function JornadasPage() {
   const supabase = createClientComponentClient();
   const [jornadas, setJornadas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const timeZone = 'America/Guayaquil';
 
   const [mesSeleccionado, setMesSeleccionado] = useState(format(new Date(), 'yyyy-MM'));
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
+
+  /**
+   * FUNCIÓN CLAVE: Extrae la hora literal del string de la DB.
+   * Evita que el navegador reste 5 horas automáticamente.
+   */
+  const extraerLiteral = (timestampDB: string, tipo: 'fecha' | 'hora' | 'objeto') => {
+    if (!timestampDB) return tipo === 'objeto' ? null : '---';
+    
+    // Limpieza de string: "2026-05-14 16:29:00+00" -> ["2026-05-14", "16:29:00"]
+    const limpio = timestampDB.replace('T', ' ').split('.')[0];
+    const partes = limpio.split(' ');
+    const fecha = partes[0];
+    const hora = partes[1] ? partes[1].split('+')[0].split('Z')[0] : "00:00:00";
+
+    if (tipo === 'fecha') return fecha;
+    if (tipo === 'hora') return hora;
+    
+    // Para cálculos, creamos un objeto Date "plano" (sin zona horaria)
+    return new Date(`${fecha}T${hora}`);
+  };
 
   useEffect(() => {
     fetchJornadas();
@@ -74,25 +92,23 @@ export default function JornadasPage() {
       if (error) throw error;
 
       const procesadas = (data || []).map(j => {
-        const ent = toZonedTime(new Date(j.entrada), timeZone);
-        const sal = j.salida ? toZonedTime(new Date(j.salida), timeZone) : ent;
+        // Usamos la extracción literal para los cálculos
+        const ent = extraerLiteral(j.entrada, 'objeto') as Date;
+        const sal = j.salida ? extraerLiteral(j.salida, 'objeto') as Date : ent;
         
         const horasTotales = differenceInMinutes(sal, ent) / 60;
-        const diaSemana = getDay(ent); // 0 = Domingo, 6 = Sábado
+        const diaSemana = getDay(ent); 
         const esFinDeSemana = diaSemana === 0 || diaSemana === 6;
 
-        // 1. Recargo Nocturno 25% (Sobre las horas trabajadas en ese rango)
         const h25 = calcularRecargoNocturno(ent, sal);
 
-        // 2. Horas Extras (Art. 55)
         let h50 = 0;
         let h100 = 0;
 
         if (esFinDeSemana) {
-          h100 = horasTotales; // Sábados y Domingos siempre 100%
+          h100 = horasTotales;
         } else if (horasTotales > 8) {
           const extras = horasTotales - 8;
-          // Si la salida es de madrugada (00h-06h), esas extras son al 100%
           const horaSalida = sal.getHours();
           if (horaSalida >= 0 && horaSalida <= 6 && sal.getDate() !== ent.getDate()) {
             h100 = Math.min(extras, horaSalida);
@@ -108,7 +124,7 @@ export default function JornadasPage() {
           h_25: h25,
           h_50: h50,
           h_100: h100,
-          excedeLimite: (h50 + h100) > 4 // Alerta Art. 55 (Límite 4h diarias)
+          excedeLimite: (h50 + h100) > 4
         };
       });
 
@@ -120,11 +136,6 @@ export default function JornadasPage() {
     }
   };
 
-  const formatFechaEcuador = (fechaIso: string) => {
-    if (!fechaIso) return '---';
-    return format(toZonedTime(new Date(fechaIso), timeZone), "HH:mm:ss");
-  };
-
   const agrupadoPorArea = jornadas.reduce((acc: any, j: any) => {
     const areaNombre = j.empleados?.area?.nombre || 'GENERAL';
     if (!acc[areaNombre]) acc[areaNombre] = [];
@@ -133,68 +144,78 @@ export default function JornadasPage() {
   }, {});
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto bg-slate-50 min-h-screen font-sans">
+    <div className="p-4 md:p-8 max-w-7xl mx-auto bg-slate-50 min-h-screen font-sans text-slate-900">
       <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4 print:hidden">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">⏱️ Control de Jornadas</h1>
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Cálculos según Código del Trabajo Ecuador</p>
+          <h1 className="text-3xl font-black tracking-tighter uppercase italic">⏱️ Control de Jornadas</h1>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Lectura Directa de Base de Datos (Ecuador)</p>
         </div>
-        <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase shadow-sm">PDF / IMPRIMIR</button>
+        <button onClick={() => window.print()} className="bg-slate-900 text-white px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-600 transition-all shadow-sm">PDF / IMPRIMIR</button>
       </header>
 
       {/* FILTROS */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 mb-8 print:hidden">
-        <input type="month" value={mesSeleccionado} onChange={(e) => setMesSeleccionado(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
-        <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
-        <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
+        <div>
+          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2">Mes</label>
+          <input type="month" value={mesSeleccionado} onChange={(e) => setMesSeleccionado(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
+        </div>
+        <div>
+          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2">Desde</label>
+          <input type="date" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
+        </div>
+        <div>
+          <label className="block text-[9px] font-black text-slate-400 uppercase mb-2">Hasta</label>
+          <input type="date" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} className="w-full border-slate-100 bg-slate-50 rounded-xl text-sm font-bold p-3 outline-none" />
+        </div>
       </div>
 
       {loading ? (
-        <div className="text-center py-20 text-slate-400 font-black uppercase text-xs">Sincronizando...</div>
+        <div className="text-center py-20 text-slate-300 font-black uppercase text-xs animate-pulse">Sincronizando registros...</div>
       ) : (
         <div className="space-y-12">
           {Object.keys(agrupadoPorArea).map((area) => (
             <section key={area} className="break-inside-avoid">
-              <h2 className="text-xl font-black text-slate-800 uppercase border-b-2 border-slate-200 pb-2 mb-6">Departamento: {area}</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-separate border-spacing-y-2">
+              <h2 className="text-xl font-black text-slate-800 uppercase border-l-4 border-indigo-600 pl-4 mb-6">Departamento: {area}</h2>
+              <div className="overflow-x-auto bg-white rounded-[2rem] border border-slate-100 shadow-sm">
+                <table className="w-full text-left">
                   <thead>
-                    <tr className="text-[9px] font-black text-slate-400 uppercase">
-                      <th className="pb-2 pl-4">Colaborador</th>
-                      <th className="pb-2 text-center">Marcaciones</th>
-                      <th className="pb-2 text-center">Total Horas</th>
-                      <th className="pb-2 text-center text-indigo-600">Rec. 25%</th>
-                      <th className="pb-2 text-center text-orange-600">Supl. 50%</th>
-                      <th className="pb-2 text-center text-red-600">Extr. 100%</th>
+                    <tr className="text-[9px] font-black text-slate-400 uppercase bg-slate-50/50">
+                      <th className="p-6">Colaborador</th>
+                      <th className="p-6 text-center">Marcaciones (Base de Datos)</th>
+                      <th className="p-6 text-center">Horas Totales</th>
+                      <th className="p-6 text-center text-indigo-600">Rec. 25%</th>
+                      <th className="p-6 text-center text-orange-600">Supl. 50%</th>
+                      <th className="p-6 text-center text-red-600">Extr. 100%</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-slate-50">
                     {agrupadoPorArea[area].map((j: any) => (
-                      <tr key={j.id} className="bg-white border border-slate-200 shadow-sm group">
-                        <td className="p-4 rounded-l-2xl border-y border-l border-slate-100">
-                          <div className="text-[9px] font-black text-indigo-500 uppercase">ID: {j.user_id_reloj}</div>
+                      <tr key={j.id} className="hover:bg-slate-50/50 transition-colors group">
+                        <td className="p-6">
+                          <div className="text-[9px] font-black text-indigo-500 uppercase font-mono">ID: {j.empleados?.user_id_reloj}</div>
                           <div className="font-black text-slate-800 uppercase text-xs">{j.empleados?.nombre}</div>
                           <div className="text-[8px] text-slate-400 font-bold uppercase">{j.empleados?.sitio?.nombre}</div>
                         </td>
-                        <td className="p-4 text-center border-y border-slate-100">
-                          <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">
-                             {format(toZonedTime(new Date(j.entrada), timeZone), "eee dd MMM", { locale: es })}
+                        <td className="p-6 text-center">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase mb-2">
+                             {/* Formateo manual del nombre del día para evitar desfases */}
+                             {extraerLiteral(j.entrada, 'fecha').split('-').reverse().join(' / ')}
                           </div>
-                          <div className="text-[10px] font-black text-slate-700 bg-slate-50 rounded-lg py-1 px-2">
-                            {formatFechaEcuador(j.entrada)} - {j.salida ? formatFechaEcuador(j.salida) : '...'}
+                          <div className="text-[10px] font-black text-slate-700 bg-slate-100 rounded-xl py-2 px-3 inline-block font-mono">
+                            {extraerLiteral(j.entrada, 'hora')} - {j.salida ? extraerLiteral(j.salida, 'hora') : '---'}
                           </div>
                         </td>
-                        <td className="p-4 text-center bg-slate-50/50 border-y border-slate-100 font-black text-slate-900 text-xs">
+                        <td className="p-6 text-center font-black text-slate-900 text-xs">
                           {j.h_totales.toFixed(2)}h
                         </td>
-                        <td className="p-4 text-center font-black text-indigo-600 text-xs border-y border-slate-100">
+                        <td className="p-6 text-center font-black text-indigo-600 text-xs">
                           {j.h_25 > 0 ? `${j.h_25.toFixed(2)}h` : '-'}
                         </td>
-                        <td className={`p-4 text-center font-black text-xs border-y border-slate-100 ${j.excedeLimite ? 'bg-red-50 text-red-600' : 'text-orange-600'}`}>
+                        <td className={`p-6 text-center font-black text-xs ${j.excedeLimite ? 'bg-red-50 text-red-600' : 'text-orange-600'}`}>
                           {j.h_50 > 0 ? `${j.h_50.toFixed(2)}h` : '-'}
-                          {j.excedeLimite && <div className="text-[7px] uppercase">Excede 4h</div>}
+                          {j.excedeLimite && <div className="text-[7px] uppercase font-bold">Límite Superado</div>}
                         </td>
-                        <td className="p-4 text-center font-black text-red-600 text-xs border-y border-slate-100">
+                        <td className="p-6 text-center font-black text-red-600 text-xs">
                           {j.h_100 > 0 ? `${j.h_100.toFixed(2)}h` : '-'}
                         </td>
                       </tr>
