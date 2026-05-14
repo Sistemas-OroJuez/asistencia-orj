@@ -36,7 +36,6 @@ export default function MonitorAsistencia() {
   async function fetchMarcas() {
     setLoading(true);
     try {
-      // 1. Cargamos empleados usando la columna user_id_reloj para el cruce
       const { data: listaEmpleados } = await supabase
         .from('empleados')
         .select(`
@@ -49,7 +48,6 @@ export default function MonitorAsistencia() {
           areas(nombre)
         `);
 
-      // 2. Consulta de Marcas
       const { data: dataMarcas, error: errMarcas } = await supabase
         .from('asistencia')
         .select('*')
@@ -59,24 +57,19 @@ export default function MonitorAsistencia() {
 
       if (errMarcas) throw errMarcas;
 
-      // 3. CRUCE DEFINITIVO: asistencia.user_id === empleados.user_id_reloj
       const cruzados = (dataMarcas || []).map(marca => {
         const idRelojMarca = String(marca.user_id).trim();
-        
         const infoEmpleado = listaEmpleados?.find(e => 
           String(e.user_id_reloj).trim() === idRelojMarca
         );
-
         return { ...marca, empleado_info: infoEmpleado };
       });
 
-      // 4. FILTROS
       const filtrados = cruzados.filter(m => {
         const pasaEmpresa = filtroEmpresa === 'TODAS' || String(m.empleado_info?.empresa_id) === String(filtroEmpresa);
         const pasaArea = filtroArea === 'TODAS' || String(m.empleado_info?.area_id) === String(filtroArea);
         const nombreBusqueda = (m.empleado_info?.nombre || "").toLowerCase();
         const pasaNombre = nombreBusqueda.includes(filtroNombre.toLowerCase()) || String(m.user_id).includes(filtroNombre);
-
         return pasaEmpresa && pasaArea && pasaNombre;
       });
 
@@ -88,7 +81,6 @@ export default function MonitorAsistencia() {
     }
   }
 
-  // Extrae fecha/hora pura para evitar desfases de zona horaria
   const rawExtract = (timestampStr: string, type: 'date' | 'time') => {
     if (!timestampStr) return "";
     const clean = timestampStr.split('+')[0].split('Z')[0].replace('T', ' ');
@@ -98,21 +90,24 @@ export default function MonitorAsistencia() {
     return "";
   };
 
-  const handleAction = async (esClon: boolean) => {
+  const handleUpdate = async () => {
     const nuevoTimestamp = `${form.fecha} ${form.hora}`;
-    const payload = { user_id: form.user_id, timestamp: nuevoTimestamp, status: 1, punch: 1 };
+    const payload = { user_id: form.user_id, timestamp: nuevoTimestamp };
 
     try {
-      if (esClon) {
-        await supabase.from('asistencia').insert([payload]);
-        alert("Copiado");
-      } else {
-        await supabase.from('asistencia').update(payload).eq('id', form.id);
-        alert("Actualizado");
-      }
+      const { error } = await supabase
+        .from('asistencia')
+        .update(payload)
+        .eq('id', form.id);
+      
+      if (error) throw error;
+
+      alert("Registro actualizado correctamente");
       setEditandoId(null);
       fetchMarcas();
-    } catch (error: any) { alert(error.message); }
+    } catch (error: any) { 
+      alert("Error al actualizar: " + error.message); 
+    }
   };
 
   return (
@@ -155,23 +150,25 @@ export default function MonitorAsistencia() {
           </div>
         </div>
 
-        {/* EDITOR */}
+        {/* EDITOR SIMPLIFICADO (SIN CLONAR) */}
         {editandoId && (
-          <div className="bg-indigo-600 text-white p-8 rounded-[2.5rem] mb-8 shadow-xl">
+          <div className="bg-indigo-600 text-white p-8 rounded-[2.5rem] mb-8 shadow-xl animate-in fade-in slide-in-from-top-4 duration-300">
              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
               <div>
-                <label className="block text-[10px] font-black uppercase mb-2">Fecha Reloj</label>
-                <input type="date" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} />
+                <label className="block text-[10px] font-black uppercase mb-2">Corregir Fecha</label>
+                <input type="date" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none focus:ring-2 focus:ring-white/20" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} />
               </div>
               <div>
-                <label className="block text-[10px] font-black uppercase mb-2">Hora Reloj</label>
-                <input type="time" step="1" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.hora} onChange={e => setForm({...form, hora: e.target.value})} />
+                <label className="block text-[10px] font-black uppercase mb-2">Corregir Hora</label>
+                <input type="time" step="1" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none focus:ring-2 focus:ring-white/20" value={form.hora} onChange={e => setForm({...form, hora: e.target.value})} />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => handleAction(false)} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all">Guardar</button>
-                <button onClick={() => handleAction(true)} className="flex-1 bg-white text-indigo-600 p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-50 transition-all">Clonar</button>
+                <button onClick={handleUpdate} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all">Guardar Cambios</button>
+                <button onClick={() => setEditandoId(null)} className="flex-1 bg-indigo-500 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-400 transition-all">Cancelar</button>
               </div>
-              <button onClick={() => setEditandoId(null)} className="text-xs font-bold underline opacity-50">Cancelar</button>
+              <div className="text-[10px] text-indigo-200 font-bold uppercase italic">
+                * Editando marca de {marcas.find(m => m.id === editandoId)?.empleado_info?.nombre || 'ID ' + form.user_id}
+              </div>
             </div>
           </div>
         )}
