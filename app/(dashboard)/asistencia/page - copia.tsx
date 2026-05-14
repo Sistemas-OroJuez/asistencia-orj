@@ -16,7 +16,7 @@ export default function MonitorAsistencia() {
   const [mesSeleccionado, setMesSeleccionado] = useState(format(new Date(), 'yyyy-MM'));
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
-  const [empresaId, setEmpresaId] = useState('TODAS'); // Cambiado a 'TODAS' por defecto
+  const [empresaId, setEmpresaId] = useState('TODAS'); 
 
   useEffect(() => {
     fetchEmpresas();
@@ -27,7 +27,6 @@ export default function MonitorAsistencia() {
   }, [mesSeleccionado, fechaInicio, fechaFin, empresaId]);
 
   async function fetchEmpresas() {
-    // CORRECCIÓN: La columna es 'nombre', no 'nombre_comercial'
     const { data, error } = await supabase.from('empresas').select('id, nombre');
     if (error) {
       console.error("Error cargando empresas:", error.message);
@@ -41,32 +40,32 @@ export default function MonitorAsistencia() {
   async function fetchDatos() {
     setLoading(true);
     try {
+      // AJUSTE: Quitamos !inner para que no oculte registros si el empleado tiene datos incompletos
       let query = supabase
         .from('jornadas_procesadas')
         .select(`
           *,
-          empleados!inner (
+          empleados (
             nombre,
             area,
             empresa_id
           )
         `);
 
-      // Filtro de Empresa: Solo aplica si no es 'TODAS'
       if (empresaId !== 'TODAS') {
         query = query.eq('empleados.empresa_id', empresaId);
       }
 
-      // Filtro de Fechas
+      // AJUSTE: Formato de fecha ISO para asegurar coincidencia con la base de datos
       if (fechaInicio && fechaFin) {
-        query = query.gte('entrada', `${fechaInicio}T00:00:00`)
-                     .lte('entrada', `${fechaFin}T23:59:59`);
+        query = query.gte('entrada', `${fechaInicio}T00:00:00.000Z`)
+                     .lte('entrada', `${fechaFin}T23:59:59.999Z`);
       } else {
         const dateRef = new Date(mesSeleccionado + "-01T12:00:00");
         const inicioMes = format(startOfMonth(dateRef), 'yyyy-MM-dd');
         const finMes = format(endOfMonth(dateRef), 'yyyy-MM-dd');
-        query = query.gte('entrada', `${inicioMes}T00:00:00`)
-                     .lte('entrada', `${finMes}T23:59:59`);
+        query = query.gte('entrada', `${inicioMes}T00:00:00.000Z`)
+                     .lte('entrada', `${finMes}T23:59:59.999Z`);
       }
 
       const { data, error } = await query.order('entrada', { ascending: false });
@@ -80,7 +79,8 @@ export default function MonitorAsistencia() {
   }
 
   const agrupadoPorArea = jornadas.reduce((acc: any, item: any) => {
-    const area = item.empleados?.area || 'SIN ÁREA DEFINIDA';
+    // AJUSTE: Si el empleado no tiene área, lo enviamos a GENERAL para no perder el dato
+    const area = item.empleados?.area || 'GENERAL / POR DEFINIR';
     if (!acc[area]) acc[area] = { registros: [], contador: 0 };
     acc[area].registros.push(item);
     acc[area].contador += 1;
@@ -97,7 +97,6 @@ export default function MonitorAsistencia() {
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-6 rounded-xl shadow-md mb-8 border-t-4 border-indigo-600">
-          {/* FILTRO DE EMPRESA CORREGIDO */}
           <div>
             <label className="block text-xs font-black text-gray-400 uppercase mb-1">Seleccionar Empresa</label>
             <select 
@@ -163,7 +162,9 @@ export default function MonitorAsistencia() {
                 <tbody className="divide-y divide-gray-100">
                   {agrupadoPorArea[area].registros.map((j: any) => (
                     <tr key={j.id} className="hover:bg-indigo-50/30 transition-colors text-sm">
-                      <td className="px-6 py-4 font-bold text-gray-800 uppercase">{j.empleados?.nombre}</td>
+                      <td className="px-6 py-4 font-bold text-gray-800 uppercase">
+                        {j.empleados?.nombre || `ID: ${j.user_id_reloj}`}
+                      </td>
                       <td className="px-6 py-4 text-gray-500">{format(new Date(j.entrada), 'dd/MM/yyyy')}</td>
                       <td className="px-6 py-4 font-black text-blue-600">{format(new Date(j.entrada), 'HH:mm:ss')}</td>
                       <td className="px-6 py-4 font-black text-orange-600">

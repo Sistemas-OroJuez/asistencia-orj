@@ -32,14 +32,14 @@ export default function MonitorAsistencia() {
   async function fetchDatos() {
     setLoading(true);
     try {
-      // Simplificamos la consulta para evitar que el 'inner join' oculte datos si falta el ID de empresa
+      // AJUSTE: Mantenemos el join simple (sin !inner) y usamos area_id que es la columna real
       let query = supabase
         .from('jornadas_procesadas')
         .select(`
           *,
           empleados (
             nombre,
-            area,
+            area_id,
             empresa_id
           )
         `);
@@ -48,14 +48,15 @@ export default function MonitorAsistencia() {
         query = query.eq('empleados.empresa_id', empresaId);
       }
 
+      // AJUSTE: Agregamos milisegundos y Z (UTC) para asegurar que coincida con el formato de la DB
       if (fechaInicio && fechaFin) {
-        query = query.gte('entrada', `${fechaInicio}T00:00:00`)
-                     .lte('entrada', `${fechaFin}T23:59:59`);
+        query = query.gte('entrada', `${fechaInicio}T00:00:00.000Z`)
+                     .lte('entrada', `${fechaFin}T23:59:59.999Z`);
       } else {
         const dateRef = new Date(mesSeleccionado + "-01T12:00:00");
         const inicio = format(startOfMonth(dateRef), 'yyyy-MM-dd');
         const fin = format(endOfMonth(dateRef), 'yyyy-MM-dd');
-        query = query.gte('entrada', `${inicio}T00:00:00`).lte('entrada', `${fin}T23:59:59`);
+        query = query.gte('entrada', `${inicio}T00:00:00.000Z`).lte('entrada', `${fin}T23:59:59.999Z`);
       }
 
       const { data, error } = await query.order('entrada', { ascending: false });
@@ -70,7 +71,8 @@ export default function MonitorAsistencia() {
 
   // Agrupación robusta
   const agrupadoPorArea = jornadas.reduce((acc: any, item: any) => {
-    const area = item.empleados?.area || 'GENERAL / POR DEFINIR';
+    // AJUSTE: Cambiado 'area' por 'area_id' según la estructura confirmada
+    const area = item.empleados?.area_id || 'GENERAL / POR DEFINIR';
     if (!acc[area]) acc[area] = { registros: [], contador: 0 };
     acc[area].registros.push(item);
     acc[area].contador += 1;
@@ -108,11 +110,15 @@ export default function MonitorAsistencia() {
 
         {loading ? (
           <div className="text-center py-20 animate-pulse text-slate-400 font-bold uppercase">Sincronizando...</div>
+        ) : Object.keys(agrupadoPorArea).length === 0 ? (
+          <div className="bg-white p-20 rounded-2xl text-center border border-dashed border-slate-200">
+            <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">No hay marcas registradas</p>
+          </div>
         ) : (
           Object.keys(agrupadoPorArea).map(area => (
             <div key={area} className="mb-8 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="bg-slate-50 px-6 py-3 border-b border-slate-100 flex justify-between items-center">
-                <h3 className="font-black text-slate-700 text-xs uppercase tracking-widest">{area}</h3>
+                <h3 className="font-black text-slate-700 text-xs uppercase tracking-widest">ÁREA: {area}</h3>
                 <span className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold">{agrupadoPorArea[area].contador} MARCAS</span>
               </div>
               <table className="w-full">
@@ -128,7 +134,10 @@ export default function MonitorAsistencia() {
                 <tbody className="divide-y divide-slate-50">
                   {agrupadoPorArea[area].registros.map((j: any) => (
                     <tr key={j.id} className="text-sm hover:bg-slate-50 transition-colors">
-                      <td className="p-4 font-bold text-slate-700">{j.empleados?.nombre || 'ID: ' + j.user_id_reloj}</td>
+                      <td className="p-4 font-bold text-slate-700">
+                        {/* AJUSTE: Si no hay nombre por el join, mostramos el ID del reloj para no ver celdas vacías */}
+                        {j.empleados?.nombre || `ID Reloj: ${j.user_id_reloj}`}
+                      </td>
                       <td className="p-4 text-slate-500">{format(new Date(j.entrada), 'dd MMM yyyy', {locale: es})}</td>
                       <td className="p-4 font-mono font-bold text-blue-600">{format(new Date(j.entrada), 'HH:mm:ss')}</td>
                       <td className="p-4 font-mono font-bold text-orange-600">{j.salida ? format(new Date(j.salida), 'HH:mm:ss') : '--:--:--'}</td>
