@@ -2,10 +2,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { toZonedTime, format as formatTZ } from 'date-fns-tz';
 
 export default function MonitorAsistencia() {
   const supabase = createClientComponentClient();
+  const timeZone = 'America/Guayaquil';
   
   const [marcas, setMarcas] = useState<any[]>([]);
   const [empresas, setEmpresas] = useState<any[]>([]);
@@ -26,6 +28,17 @@ export default function MonitorAsistencia() {
     fetchMarcas();
   }, [filtroEmpresa, filtroArea, fechaInicio, fechaFin]);
 
+  /**
+   * UTILIDADES DE ZONA HORARIA
+   */
+  const getZonedDate = (isoString: string) => toZonedTime(parseISO(isoString), timeZone);
+
+  const formatMostrar = (isoString: string, type: 'date' | 'time') => {
+    if (!isoString) return "";
+    const zoned = getZonedDate(isoString);
+    return type === 'date' ? formatTZ(zoned, 'yyyy-MM-dd', { timeZone }) : formatTZ(zoned, 'HH:mm:ss', { timeZone });
+  };
+
   async function fetchMaestros() {
     const { data: emp } = await supabase.from('empresas').select('id, nombre');
     const { data: are } = await supabase.from('areas').select('id, nombre');
@@ -38,30 +51,20 @@ export default function MonitorAsistencia() {
     try {
       const { data: listaEmpleados } = await supabase
         .from('empleados')
-        .select(`
-          id, 
-          nombre, 
-          user_id_reloj, 
-          empresa_id, 
-          area_id, 
-          empresas(nombre), 
-          areas(nombre)
-        `);
+        .select(`id, nombre, user_id_reloj, empresa_id, area_id, empresas(nombre), areas(nombre)`);
 
       const { data: dataMarcas, error: errMarcas } = await supabase
         .from('asistencia')
         .select('*')
-        .gte('timestamp', `${fechaInicio} 00:00:00`)
-        .lte('timestamp', `${fechaFin} 23:59:59`)
+        .gte('timestamp', `${fechaInicio} 00:00:00+0`) // Forzamos UTC en la consulta
+        .lte('timestamp', `${fechaFin} 23:59:59+0`)
         .order('timestamp', { ascending: false });
 
       if (errMarcas) throw errMarcas;
 
       const cruzados = (dataMarcas || []).map(marca => {
         const idRelojMarca = String(marca.user_id).trim();
-        const infoEmpleado = listaEmpleados?.find(e => 
-          String(e.user_id_reloj).trim() === idRelojMarca
-        );
+        const infoEmpleado = listaEmpleados?.find(e => String(e.user_id_reloj).trim() === idRelojMarca);
         return { ...marca, empleado_info: infoEmpleado };
       });
 
@@ -81,16 +84,9 @@ export default function MonitorAsistencia() {
     }
   }
 
-  const rawExtract = (timestampStr: string, type: 'date' | 'time') => {
-    if (!timestampStr) return "";
-    const clean = timestampStr.split('+')[0].split('Z')[0].replace('T', ' ');
-    const parts = clean.trim().split(' ');
-    if (type === 'date') return parts[0];
-    if (type === 'time') return parts[1] ? parts[1].substring(0, 8) : "00:00:00"; 
-    return "";
-  };
-
   const handleUpdate = async () => {
+    // Al guardar, enviamos el string combinando fecha y hora. 
+    // Supabase lo interpretará como la hora local de la base o UTC dependiendo de tu config.
     const nuevoTimestamp = `${form.fecha} ${form.hora}`;
     const payload = { user_id: form.user_id, timestamp: nuevoTimestamp };
 
@@ -115,7 +111,7 @@ export default function MonitorAsistencia() {
       <div className="max-w-7xl mx-auto">
         <header className="mb-8 border-l-4 border-indigo-600 pl-4">
           <h1 className="text-2xl font-black uppercase tracking-tighter">🕒 Monitor de Marcas Brutas</h1>
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Auditoría OroJuez SA</p>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Auditoría OroJuez SA (Ecuador Time)</p>
         </header>
 
         {/* FILTROS */}
@@ -150,24 +146,21 @@ export default function MonitorAsistencia() {
           </div>
         </div>
 
-        {/* EDITOR SIMPLIFICADO (SIN CLONAR) */}
+        {/* EDITOR */}
         {editandoId && (
-          <div className="bg-indigo-600 text-white p-8 rounded-[2.5rem] mb-8 shadow-xl animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="bg-indigo-600 text-white p-8 rounded-[2.5rem] mb-8 shadow-xl">
              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
               <div>
                 <label className="block text-[10px] font-black uppercase mb-2">Corregir Fecha</label>
-                <input type="date" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none focus:ring-2 focus:ring-white/20" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} />
+                <input type="date" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} />
               </div>
               <div>
                 <label className="block text-[10px] font-black uppercase mb-2">Corregir Hora</label>
-                <input type="time" step="1" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none focus:ring-2 focus:ring-white/20" value={form.hora} onChange={e => setForm({...form, hora: e.target.value})} />
+                <input type="time" step="1" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.hora} onChange={e => setForm({...form, hora: e.target.value})} />
               </div>
               <div className="flex gap-3">
-                <button onClick={handleUpdate} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all">Guardar Cambios</button>
+                <button onClick={handleUpdate} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all">Guardar</button>
                 <button onClick={() => setEditandoId(null)} className="flex-1 bg-indigo-500 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-400 transition-all">Cancelar</button>
-              </div>
-              <div className="text-[10px] text-indigo-200 font-bold uppercase italic">
-                * Editando marca de {marcas.find(m => m.id === editandoId)?.empleado_info?.nombre || 'ID ' + form.user_id}
               </div>
             </div>
           </div>
@@ -201,10 +194,10 @@ export default function MonitorAsistencia() {
                   </td>
                   <td className="p-6 text-center">
                     <div className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">
-                        {rawExtract(m.timestamp, 'date').split('-').reverse().join(' / ')}
+                        {formatMostrar(m.timestamp, 'date').split('-').reverse().join(' / ')}
                     </div>
                     <span className="bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-bold shadow-sm inline-block">
-                      {rawExtract(m.timestamp, 'time')}
+                      {formatMostrar(m.timestamp, 'time')}
                     </span>
                   </td>
                   <td className="p-6 text-right px-8">
@@ -214,12 +207,12 @@ export default function MonitorAsistencia() {
                         setForm({
                           id: m.id,
                           user_id: m.user_id,
-                          fecha: rawExtract(m.timestamp, 'date'),
-                          hora: rawExtract(m.timestamp, 'time')
+                          fecha: formatMostrar(m.timestamp, 'date'),
+                          hora: formatMostrar(m.timestamp, 'time')
                         });
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
-                      className="opacity-0 group-hover:opacity-100 bg-white border border-slate-200 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 hover:shadow-md transition-all"
+                      className="opacity-0 group-hover:opacity-100 bg-white border border-slate-200 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 transition-all"
                     >
                       ✏️
                     </button>
