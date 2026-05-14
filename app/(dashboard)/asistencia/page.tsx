@@ -8,27 +8,36 @@ import { es } from 'date-fns/locale';
 export default function MonitorAsistencia() {
   const supabase = createClientComponentClient();
 
-  // --- ESTADOS ---
-  // Se agrega <any[]> para evitar el error de "SetStateAction<never[]>" en el build
   const [jornadas, setJornadas] = useState<any[]>([]);
+  const [empresas, setEmpresas] = useState<any[]>([]); // Nuevo: Estado para cargar empresas
   const [loading, setLoading] = useState(true);
   
-  // Filtros: Mes actual por defecto, Rango de fechas y Empresa
+  // FILTROS
   const [mesSeleccionado, setMesSeleccionado] = useState(format(new Date(), 'yyyy-MM'));
   const [fechaInicio, setFechaInicio] = useState('');
   const [fechaFin, setFechaFin] = useState('');
-  
-  // ID de OroJuez SA para filtrar la data
-  const [empresaId] = useState('dcb8a81e-338e-4da4-a278-fb4a772c9c72');
+  const [empresaId, setEmpresaId] = useState(''); // Se llenará con la primera empresa encontrada
 
   useEffect(() => {
-    fetchDatos();
+    fetchEmpresas();
+  }, []);
+
+  useEffect(() => {
+    if (empresaId) fetchDatos();
   }, [mesSeleccionado, fechaInicio, fechaFin, empresaId]);
+
+  // Cargar lista de empresas para el filtro
+  async function fetchEmpresas() {
+    const { data } = await supabase.from('empresas').select('id, nombre_comercial');
+    if (data) {
+      setEmpresas(data);
+      if (data.length > 0) setEmpresaId(data[0].id); // Selecciona la primera por defecto
+    }
+  }
 
   async function fetchDatos() {
     setLoading(true);
     try {
-      // Consulta con Inner Join a Empleados para filtrar por Empresa y traer el Área
       let query = supabase
         .from('jornadas_procesadas')
         .select(`
@@ -41,12 +50,10 @@ export default function MonitorAsistencia() {
         `)
         .eq('empleados.empresa_id', empresaId);
 
-      // Lógica de Filtro de Fechas (Rango vs Mes)
       if (fechaInicio && fechaFin) {
         query = query.gte('entrada', `${fechaInicio}T00:00:00`)
                      .lte('entrada', `${fechaFin}T23:59:59`);
       } else {
-        // Si no hay rango, usamos el mes seleccionado
         const dateRef = new Date(mesSeleccionado + "-01T12:00:00");
         const inicioMes = format(startOfMonth(dateRef), 'yyyy-MM-dd');
         const finMes = format(endOfMonth(dateRef), 'yyyy-MM-dd');
@@ -55,18 +62,15 @@ export default function MonitorAsistencia() {
       }
 
       const { data, error } = await query.order('entrada', { ascending: false });
-      
       if (error) throw error;
       setJornadas(data || []);
-
     } catch (error) {
-      console.error("Error cargando asistencia:", error);
+      console.error("Error:", error);
     } finally {
       setLoading(false);
     }
   }
 
-  // --- LÓGICA DE AGRUPACIÓN POR ÁREA Y SUBTOTALES ---
   const agrupadoPorArea = jornadas.reduce((acc: any, item: any) => {
     const area = item.empleados?.area || 'SIN ÁREA DEFINIDA';
     if (!acc[area]) acc[area] = { registros: [], contador: 0 };
@@ -79,111 +83,89 @@ export default function MonitorAsistencia() {
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
         <header className="mb-8">
-          <h1 className="text-3xl font-black text-gray-800 tracking-tight uppercase">
+          <h1 className="text-3xl font-black text-gray-800 uppercase tracking-tighter">
             📊 Monitoreo de Asistencia
           </h1>
-          <p className="text-gray-500">Visualización de registros en tiempo real por departamento.</p>
         </header>
 
-        {/* --- PANEL DE FILTROS --- */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-6 rounded-xl shadow-md mb-8 border-t-4 border-blue-600">
+        {/* --- PANEL DE FILTROS ACTUALIZADO --- */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-white p-6 rounded-xl shadow-md mb-8 border-t-4 border-indigo-600">
+          
+          {/* FILTRO DE EMPRESA (NUEVO) */}
           <div>
-            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Filtrar por Mes</label>
-            <input 
-              type="month" 
-              className="w-full border border-gray-200 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <label className="block text-xs font-black text-gray-400 uppercase mb-1">Seleccionar Empresa</label>
+            <select 
+              className="w-full border border-gray-200 rounded-lg p-2 text-sm bg-white"
+              value={empresaId}
+              onChange={(e) => setEmpresaId(e.target.value)}
+            >
+              {empresas.map(emp => (
+                <option key={emp.id} value={emp.id}>{emp.nombre_comercial}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase mb-1">Mes</label>
+            <input type="month" className="w-full border border-gray-200 rounded-lg p-2 text-sm"
               value={mesSeleccionado}
-              onChange={(e) => {
-                setMesSeleccionado(e.target.value);
-                setFechaInicio(''); setFechaFin('');
-              }}
+              onChange={(e) => { setMesSeleccionado(e.target.value); setFechaInicio(''); setFechaFin(''); }}
             />
           </div>
+
           <div>
-            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Desde (Rango)</label>
-            <input 
-              type="date" 
-              className="w-full border border-gray-200 rounded-lg p-2 text-sm"
-              value={fechaInicio}
-              onChange={(e) => setFechaInicio(e.target.value)}
-            />
+            <label className="block text-xs font-black text-gray-400 uppercase mb-1">Desde / Hasta</label>
+            <div className="flex gap-1">
+              <input type="date" className="w-1/2 border border-gray-200 rounded-lg p-1 text-xs" value={fechaInicio} onChange={(e) => setFechaInicio(e.target.value)} />
+              <input type="date" className="w-1/2 border border-gray-200 rounded-lg p-1 text-xs" value={fechaFin} onChange={(e) => setFechaFin(e.target.value)} />
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Hasta (Rango)</label>
-            <input 
-              type="date" 
-              className="w-full border border-gray-200 rounded-lg p-2 text-sm"
-              value={fechaFin}
-              onChange={(e) => setFechaFin(e.target.value)}
-            />
-          </div>
+
           <div className="flex items-end">
-             <button 
-                onClick={fetchDatos} 
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg transition duration-200 shadow-sm"
-             >
-               ACTUALIZAR
+             <button onClick={fetchDatos} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black py-2 rounded-lg transition shadow-sm uppercase text-xs tracking-widest">
+               Actualizar
              </button>
           </div>
         </div>
 
-        {/* --- LISTADO POR ÁREAS --- */}
+        {/* LISTADO */}
         {loading ? (
-          <div className="flex flex-col items-center py-20">
-            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4"></div>
-            <p className="text-gray-400 font-medium">Cargando registros...</p>
-          </div>
-        ) : Object.keys(agrupadoPorArea).length === 0 ? (
-          <div className="bg-white p-20 rounded-xl text-center border-2 border-dashed">
-            <p className="text-gray-400 font-bold uppercase tracking-widest">No se encontraron registros</p>
-          </div>
+          <p className="text-center py-20 text-gray-400 font-bold uppercase animate-pulse">Cargando datos...</p>
         ) : (
           Object.keys(agrupadoPorArea).sort().map(area => (
             <div key={area} className="mb-10 bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
-              <div className="bg-gray-800 px-6 py-4 flex justify-between items-center">
-                <h2 className="text-white font-extrabold text-lg tracking-tighter uppercase">ÁREA: {area}</h2>
-                <span className="bg-blue-500 text-white text-xs px-4 py-1 rounded-full font-black">
-                  {agrupadoPorArea[area].contador} REGISTROS
+              <div className="bg-slate-800 px-6 py-4 flex justify-between items-center">
+                <h2 className="text-white font-black text-sm uppercase tracking-widest">ÁREA: {area}</h2>
+                <span className="bg-indigo-500 text-white text-[10px] px-3 py-1 rounded-full font-black uppercase">
+                  {agrupadoPorArea[area].contador} Registros
                 </span>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-6 py-3 text-xs font-black text-gray-500 uppercase">Empleado</th>
-                      <th className="px-6 py-3 text-xs font-black text-gray-500 uppercase">Fecha</th>
-                      <th className="px-6 py-3 text-xs font-black text-gray-500 uppercase">Entrada</th>
-                      <th className="px-6 py-3 text-xs font-black text-gray-500 uppercase">Salida</th>
-                      <th className="px-6 py-3 text-xs font-black text-gray-500 uppercase text-center">Estado</th>
+              <table className="w-full text-left">
+                <thead className="bg-gray-50 border-b">
+                  <tr className="text-[10px] font-black text-gray-400 uppercase">
+                    <th className="px-6 py-3">Empleado</th>
+                    <th className="px-6 py-3">Fecha</th>
+                    <th className="px-6 py-3">Entrada</th>
+                    <th className="px-6 py-3">Salida</th>
+                    <th className="px-6 py-3 text-center">Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {agrupadoPorArea[area].registros.map((j: any) => (
+                    <tr key={j.id} className="hover:bg-indigo-50/30 transition-colors text-sm">
+                      <td className="px-6 py-4 font-bold text-gray-800 uppercase">{j.empleados?.nombre}</td>
+                      <td className="px-6 py-4 text-gray-500">{format(new Date(j.entrada), 'dd/MM/yyyy')}</td>
+                      <td className="px-6 py-4 font-black text-blue-600">{format(new Date(j.entrada), 'HH:mm:ss')}</td>
+                      <td className="px-6 py-4 font-black text-orange-600">{j.salida ? format(new Date(j.salida), 'HH:mm:ss') : '--:--:--'}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${j.estado === 'abierta' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {j.estado}
+                        </span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {agrupadoPorArea[area].registros.map((j: any) => (
-                      <tr key={j.id} className="hover:bg-blue-50/50 transition-colors">
-                        <td className="px-6 py-4 font-bold text-gray-900">{j.empleados?.nombre}</td>
-                        <td className="px-6 py-4 text-sm text-gray-600 capitalize">
-                          {format(new Date(j.entrada), 'eeee, d MMM', { locale: es })}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-blue-600 font-extrabold">
-                          {format(new Date(j.entrada), 'HH:mm:ss')}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-orange-600 font-extrabold">
-                          {j.salida ? format(new Date(j.salida), 'HH:mm:ss') : '--:--:--'}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest border ${
-                            j.estado === 'abierta' 
-                              ? 'bg-green-50 text-green-700 border-green-200' 
-                              : 'bg-gray-100 text-gray-600 border-gray-200'
-                          }`}>
-                            {j.estado.toUpperCase()}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ))
         )}
