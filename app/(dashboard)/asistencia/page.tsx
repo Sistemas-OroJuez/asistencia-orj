@@ -36,10 +36,12 @@ export default function MonitorAsistencia() {
   async function fetchMarcas() {
     setLoading(true);
     try {
+      // 1. Cargamos empleados con sus relaciones de Empresa y Área
       const { data: listaEmpleados } = await supabase
         .from('empleados')
-        .select(`id, nombre, empresa_id, area_id, empresas(nombre), areas(nombre)`);
+        .select(`*, empresas(nombre), areas(nombre)`);
 
+      // 2. Consulta de Marcas Brutas
       const { data: dataMarcas, error: errMarcas } = await supabase
         .from('asistencia')
         .select('*')
@@ -49,46 +51,62 @@ export default function MonitorAsistencia() {
 
       if (errMarcas) throw errMarcas;
 
+      // 3. Cruce Manual de Datos (Espejo del Reloj)
       const cruzados = (dataMarcas || []).map(marca => {
         const idReloj = String(marca.user_id).trim();
-        const infoEmpleado = listaEmpleados?.find(e => String(e.id).trim() === idReloj);
+        
+        // Buscamos al empleado: Comparar contra 'id' o 'codigo' si existiera
+        const infoEmpleado = listaEmpleados?.find(e => 
+          String(e.id).trim() === idReloj || 
+          (e.codigo && String(e.codigo).trim() === idReloj)
+        );
+
         return { ...marca, empleado_info: infoEmpleado };
       });
 
+      // 4. Aplicación de Filtros en el Cliente
       const filtrados = cruzados.filter(m => {
         const pasaEmpresa = filtroEmpresa === 'TODAS' || String(m.empleado_info?.empresa_id) === String(filtroEmpresa);
         const pasaArea = filtroArea === 'TODAS' || String(m.empleado_info?.area_id) === String(filtroArea);
-        const pasaNombre = (m.empleado_info?.nombre || "").toLowerCase().includes(filtroNombre.toLowerCase()) || 
-                          String(m.user_id).includes(filtroNombre);
+        const nombreBusqueda = (m.empleado_info?.nombre || "").toLowerCase();
+        const pasaNombre = nombreBusqueda.includes(filtroNombre.toLowerCase()) || String(m.user_id).includes(filtroNombre);
+
         return pasaEmpresa && pasaArea && pasaNombre;
       });
 
       setMarcas(filtrados);
     } catch (e) {
-      console.error("Error:", e);
+      console.error("Error en el monitor:", e);
     } finally {
       setLoading(false);
     }
   }
 
-  const handleAction = async (esClon: boolean) => {
-    // Se envía tal cual, sin convertir a objeto Date para evitar cambios de zona horaria
-    const nuevoTimestamp = `${form.fecha} ${form.hora}`;
+  // FUNCIÓN CRÍTICA: Extrae fecha/hora ignorando el desfase +00:00 del string
+  const rawExtract = (timestampStr: string, type: 'date' | 'time') => {
+    if (!timestampStr) return "";
+    
+    // Limpiamos el string: quitamos la T, quitamos el +00:00 o Z
+    const clean = timestampStr.split('+')[0].split('Z')[0].replace('T', ' ');
+    const parts = clean.trim().split(' ');
+    
+    if (type === 'date') return parts[0]; // Retorna YYYY-MM-DD
+    if (type === 'time') return parts[1] ? parts[1].substring(0, 8) : "00:00:00"; 
+    return "";
+  };
 
-    const payload = { 
-        user_id: form.user_id, 
-        timestamp: nuevoTimestamp, 
-        status: 1, 
-        punch: 1 
-    };
+  const handleAction = async (esClon: boolean) => {
+    // Enviamos el string limpio para que la DB lo guarde como tiempo local
+    const nuevoTimestamp = `${form.fecha} ${form.hora}`;
+    const payload = { user_id: form.user_id, timestamp: nuevoTimestamp, status: 1, punch: 1 };
 
     try {
       if (esClon) {
         await supabase.from('asistencia').insert([payload]);
-        alert("Registro clonado exactamente");
+        alert("¡Clonado con éxito!");
       } else {
         await supabase.from('asistencia').update(payload).eq('id', form.id);
-        alert("Registro actualizado correctamente");
+        alert("¡Actualizado con éxito!");
       }
       setEditandoId(null);
       fetchMarcas();
@@ -97,30 +115,19 @@ export default function MonitorAsistencia() {
     }
   };
 
-  // Función para extraer la parte de la hora y fecha del STRING directamente
-  // Esto evita que el navegador aplique desfases UTC
-  const rawExtract = (timestampStr: string, type: 'date' | 'time') => {
-    if (!timestampStr) return "";
-    // Separamos el string por la 'T' o el espacio
-    const parts = timestampStr.split(/[T ]/);
-    if (type === 'date') return parts[0]; // yyyy-mm-dd
-    if (type === 'time') return parts[1]?.split('.')[0]; // hh:mm:ss
-    return "";
-  };
-
   return (
     <div className="p-4 md:p-8 bg-slate-50 min-h-screen text-slate-900 font-sans">
       <div className="max-w-7xl mx-auto">
         <header className="mb-8 border-l-4 border-indigo-600 pl-4">
-          <h1 className="text-2xl font-black uppercase text-slate-800 tracking-tighter">🕒 Monitor de Marcas Brutas</h1>
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Espejo Directo de Reloj • OroJuez SA</p>
+          <h1 className="text-2xl font-black uppercase tracking-tighter text-slate-800">🕒 Monitor de Marcas Brutas</h1>
+          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mt-1">Sincronización OroJuez SA</p>
         </header>
 
-        {/* --- FILTROS --- */}
-        <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-200 mb-6 grid grid-cols-1 md:grid-cols-5 gap-4">
+        {/* FILTROS */}
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-200 mb-6 grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
-            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Empleado</label>
-            <input type="text" placeholder="ID o Nombre..." className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={filtroNombre} onChange={(e) => setFiltroNombre(e.target.value)} />
+            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Empleado / ID</label>
+            <input type="text" placeholder="Buscar..." className="w-full p-3 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={filtroNombre} onChange={(e) => setFiltroNombre(e.target.value)} />
           </div>
           <div>
             <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Empresa</label>
@@ -137,59 +144,61 @@ export default function MonitorAsistencia() {
             </select>
           </div>
           <div>
-            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Rango Fechas</label>
+            <label className="block text-[9px] font-black text-slate-400 uppercase mb-2 ml-1">Rango</label>
             <div className="flex gap-1">
               <input type="date" className="w-1/2 p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-bold outline-none" value={fechaInicio} onChange={e => setFechaInicio(e.target.value)} />
               <input type="date" className="w-1/2 p-3 bg-slate-50 border border-slate-100 rounded-2xl text-[10px] font-bold outline-none" value={fechaFin} onChange={e => setFechaFin(e.target.value)} />
             </div>
           </div>
           <div className="flex items-end">
-             <button onClick={fetchMarcas} className="w-full bg-slate-900 text-white p-3.5 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-600 transition-all">Actualizar Lista</button>
+             <button onClick={fetchMarcas} className="w-full bg-slate-900 text-white p-3.5 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-600 transition-all">Actualizar</button>
           </div>
         </div>
 
-        {/* --- EDITOR (FECHA/HORA PURA) --- */}
+        {/* EDITOR DE MARCAS */}
         {editandoId && (
-          <div className="bg-indigo-600 text-white p-8 rounded-[2.5rem] mb-8 shadow-xl">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+          <div className="bg-indigo-600 text-white p-8 rounded-[2.5rem] mb-8 shadow-xl animate-in fade-in zoom-in-95 duration-300">
+             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
               <div>
-                <label className="block text-[10px] font-black uppercase mb-2">Fecha Exacta</label>
+                <label className="block text-[10px] font-black uppercase mb-2 text-indigo-200">Fecha del Reloj</label>
                 <input type="date" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.fecha} onChange={e => setForm({...form, fecha: e.target.value})} />
               </div>
               <div>
-                <label className="block text-[10px] font-black uppercase mb-2">Hora Exacta</label>
+                <label className="block text-[10px] font-black uppercase mb-2 text-indigo-200">Hora del Reloj</label>
                 <input type="time" step="1" className="w-full p-4 bg-indigo-700 border-none rounded-2xl text-sm font-bold text-white outline-none" value={form.hora} onChange={e => setForm({...form, hora: e.target.value})} />
               </div>
               <div className="flex gap-3">
-                <button onClick={() => handleAction(false)} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all">Actualizar</button>
+                <button onClick={() => handleAction(false)} className="flex-1 bg-slate-900 text-white p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-black transition-all">Guardar</button>
                 <button onClick={() => handleAction(true)} className="flex-1 bg-white text-indigo-600 p-4 rounded-2xl text-[10px] font-black uppercase hover:bg-indigo-50 transition-all">Clonar</button>
               </div>
-              <button onClick={() => setEditandoId(null)} className="text-xs font-bold underline opacity-50">Cancelar</button>
+              <button onClick={() => setEditandoId(null)} className="text-xs font-bold underline opacity-50 hover:opacity-100">Cerrar</button>
             </div>
           </div>
         )}
 
-        {/* --- TABLA (LECTURA DIRECTA DE STRING) --- */}
+        {/* TABLA PRINCIPAL */}
         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
-          <table className="w-full text-left">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="p-6 text-[10px] font-black text-slate-400 uppercase">Empleado</th>
+              <tr className="bg-slate-50/50 border-b border-slate-100">
+                <th className="p-6 text-[10px] font-black text-slate-400 uppercase">Colaborador</th>
                 <th className="p-6 text-[10px] font-black text-slate-400 uppercase">Empresa / Área</th>
                 <th className="p-6 text-[10px] font-black text-slate-400 uppercase text-center">Fecha y Hora</th>
-                <th className="p-6 text-right px-8"></th>
+                <th className="p-6 text-right px-8">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                <tr><td colSpan={4} className="p-24 text-center animate-pulse text-slate-300 font-black uppercase text-xl">Leyendo marcas...</td></tr>
+                <tr><td colSpan={4} className="p-20 text-center animate-pulse text-slate-300 font-black uppercase">Cargando...</td></tr>
+              ) : marcas.length === 0 ? (
+                <tr><td colSpan={4} className="p-20 text-center text-slate-400 font-bold uppercase text-xs italic">Sin registros en este rango</td></tr>
               ) : marcas.map((m) => (
-                <tr key={m.id} className="hover:bg-slate-50 transition-colors group">
+                <tr key={m.id} className="hover:bg-slate-50/80 transition-colors group">
                   <td className="p-6">
                     <div className="text-sm font-black uppercase text-slate-800">
-                      {m.empleado_info?.nombre || <span className="text-red-500 font-bold italic">DESCONOCIDO</span>}
+                      {m.empleado_info?.nombre || <span className="text-red-500 italic">DESCONOCIDO</span>}
                     </div>
-                    <div className="text-[9px] text-indigo-500 font-bold mt-1 uppercase">ID RELOJ: {m.user_id}</div>
+                    <div className="text-[9px] text-indigo-500 font-bold tracking-widest mt-1 uppercase">ID RELOJ: {m.user_id}</div>
                   </td>
                   <td className="p-6">
                     <div className="text-[10px] font-bold text-slate-600 uppercase">{m.empleado_info?.empresas?.nombre || '---'}</div>
@@ -199,7 +208,7 @@ export default function MonitorAsistencia() {
                     <div className="text-[10px] font-black text-slate-400 mb-1.5 uppercase">
                       {rawExtract(m.timestamp, 'date').split('-').reverse().join(' / ')}
                     </div>
-                    <span className="bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-bold inline-block">
+                    <span className="bg-slate-900 text-white px-4 py-2 rounded-2xl text-xs font-mono font-bold shadow-sm inline-block">
                       {rawExtract(m.timestamp, 'time')}
                     </span>
                   </td>
@@ -215,7 +224,7 @@ export default function MonitorAsistencia() {
                         });
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}
-                      className="opacity-0 group-hover:opacity-100 bg-white border border-slate-200 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 transition-all"
+                      className="opacity-0 group-hover:opacity-100 bg-white border border-slate-200 p-3 rounded-2xl text-slate-400 hover:text-indigo-600 hover:shadow-md transition-all"
                     >
                       ✏️
                     </button>
